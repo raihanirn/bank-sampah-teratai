@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Bank Sampah Teratai</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { scrollbar-width: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <div id="app" class="flex-1 flex flex-col">
+        <!-- Rendered dynamically via JavaScript -->
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[60] flex flex-col space-y-2 w-[92%] max-w-sm pointer-events-none"></div>
+
+    <!-- Modal Container -->
+    <div id="modal-container" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"></div>
+
+    <script>
+        const LOGO = 'data:image/jpeg;base64,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';
+        function logoImg(cls) { return `<img src="${LOGO}" alt="Logo Bank Sampah Teratai" class="${cls} rounded-full object-cover bg-white">`; }
+        function todayStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+
+        const DEFAULT_PRICES = {
+            'Kardus': 1800,
+            'Beling': 300,
+            'Besi': 4000,
+            'Tutup Botol': 3000,
+            'Tutup Galon': 5000,
+            'Majalah': 1000,
+            'Buku': 1500,
+            'HVS': 1800,
+            'Aluminium': 17000,
+            'Aki Motor': 10000,
+            'Kaleng': 2000,
+            'Emberan': 2000,
+            'Gelas Bersih': 4500,
+            'Botol Bersih': 4000
+        };
+
+        const DEFAULT_USERS = [
+            { id: 'u_admin', phone: '081100000000', pin: 'admin123', name: 'Admin Pengelola', role: 'admin', saldo: 0, joinedDate: '2026-01-01', status: 'Aktif' }
+        ];
+
+        const DEFAULT_SETORAN = [];
+
+        const DEFAULT_KARYA = [];
+
+        function initStorage() {
+            if (!localStorage.getItem('bs_users')) localStorage.setItem('bs_users', JSON.stringify(DEFAULT_USERS));
+            if (!localStorage.getItem('bs_prices')) localStorage.setItem('bs_prices', JSON.stringify(DEFAULT_PRICES));
+            if (!localStorage.getItem('bs_setoran')) localStorage.setItem('bs_setoran', JSON.stringify(DEFAULT_SETORAN));
+            if (!localStorage.getItem('bs_karya')) localStorage.setItem('bs_karya', JSON.stringify(DEFAULT_KARYA));
+            if (localStorage.getItem('bs_ver') !== '6') {
+                const pr = JSON.parse(localStorage.getItem('bs_prices'));
+                delete pr['Boncos'];
+                localStorage.setItem('bs_prices', JSON.stringify(pr));
+                const demoUsers = ['u1', 'u2'];
+                localStorage.setItem('bs_users', JSON.stringify(JSON.parse(localStorage.getItem('bs_users')).filter(u => !demoUsers.includes(u.id))));
+                localStorage.setItem('bs_setoran', JSON.stringify(JSON.parse(localStorage.getItem('bs_setoran')).filter(x => !demoUsers.includes(x.userId))));
+                localStorage.setItem('bs_karya', JSON.stringify(JSON.parse(localStorage.getItem('bs_karya')).filter(k => !['k1', 'k2', 'k3'].includes(k.id))));
+                localStorage.setItem('bs_ver', '6');
+            }
+        }
+
+        initStorage();
+
+        let currentUser = JSON.parse(localStorage.getItem('bs_current_user')) || null;
+        let currentView = currentUser ? currentUser.role : 'welcome'; 
+        let authMode = 'login'; 
+        let selectedAuthRole = 'nasabah';
+        let activeNasabahTab = 'beranda'; 
+        let activeAdminTab = 'dashboard'; 
+        let adminSaldoYear = String(new Date().getFullYear());
+        let adminCharts = [];
+
+        // Saldo masuk per tahun = jumlah totalValue setoran berstatus 'Selesai' berdasarkan tahun di field date
+        function getSaldoPerTahun(setoranList) {
+            const perTahun = {};
+            setoranList.filter(s => s.status === 'Selesai').forEach(s => {
+                const y = (s.date || '').slice(0, 4);
+                if (!y) return;
+                perTahun[y] = (perTahun[y] || 0) + (s.totalValue || 0);
+            });
+            return perTahun;
+        }
+
+        function getSaldoPerBulan(setoranList, year) {
+            const perBulan = new Array(12).fill(0);
+            setoranList.filter(s => s.status === 'Selesai' && (s.date || '').startsWith(year + '-')).forEach(s => {
+                const m = parseInt(s.date.slice(5, 7), 10) - 1;
+                if (m >= 0 && m < 12) perBulan[m] += (s.totalValue || 0);
+            });
+            return perBulan;
+        }
+
+        function destroyAdminCharts() {
+            adminCharts.forEach(c => c.destroy());
+            adminCharts = [];
+        }
+
+        function initAdminCharts() {
+            destroyAdminCharts();
+            if (typeof Chart === 'undefined') return; // CDN gagal dimuat
+            const setoranList = JSON.parse(localStorage.getItem('bs_setoran'));
+            const perTahun = getSaldoPerTahun(setoranList);
+            const years = Object.keys(perTahun).sort();
+            const rp = v => 'Rp ' + Number(v).toLocaleString('id-ID');
+            const baseOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => rp(ctx.parsed.y) } }
+                },
+                scales: { y: { beginAtZero: true, ticks: { callback: v => rp(v) } } }
+            };
+
+            const elTahun = document.getElementById('chart-saldo-tahun');
+            if (elTahun) {
+                adminCharts.push(new Chart(elTahun, {
+                    type: 'bar',
+                    data: { labels: years, datasets: [{ data: years.map(y => perTahun[y]), backgroundColor: '#0f766e', borderRadius: 8 }] },
+                    options: baseOptions
+                }));
+            }
+
+            const elBulan = document.getElementById('chart-saldo-bulan');
+            if (elBulan) {
+                adminCharts.push(new Chart(elBulan, {
+                    type: 'line',
+                    data: {
+                        labels: ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'],
+                        datasets: [{ data: getSaldoPerBulan(setoranList, adminSaldoYear), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.15)', fill: true, tension: 0.3, pointRadius: 4 }]
+                    },
+                    options: baseOptions
+                }));
+            }
+        }
+
+        let nasabahSearchQuery = '';
+        let selectedYear = null;
+        const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-3 rounded-2xl shadow-xl text-white font-medium text-sm flex items-center space-x-3 transition-all transform translate-y-2 opacity-0 ${type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'}`;
+            toast.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'} text-lg"></i><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.remove('translate-y-2', 'opacity-0'), 50);
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function closeModal() {
+            const container = document.getElementById('modal-container');
+            container.classList.add('hidden');
+            container.innerHTML = '';
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            destroyAdminCharts();
+            app.innerHTML = '';
+
+            if (!currentUser) {
+                if (currentView === 'welcome') {
+                    app.innerHTML = renderWelcomeScreen();
+                } else if (currentView === 'auth') {
+                    app.innerHTML = renderAuthScreen();
+                }
+            } else {
+                if (currentUser.role === 'nasabah') {
+                    app.innerHTML = renderNasabahPortal();
+                } else if (currentUser.role === 'admin') {
+                    app.innerHTML = renderAdminPortal();
+                    if (activeAdminTab === 'dashboard') initAdminCharts();
+                }
+            }
+        }
+
+        function renderWelcomeScreen() {
+            return `
+                <div class="flex-1 flex flex-col items-center justify-center p-6 bg-gradient-to-br from-emerald-800 via-emerald-600 to-teal-800 text-white relative overflow-hidden">
+                    <div class="absolute -top-24 -left-24 w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div class="absolute -bottom-24 -right-24 w-96 h-96 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none"></div>
+                    
+                    <div class="max-w-md w-full bg-white/10 backdrop-blur-xl p-8 rounded-3xl shadow-2xl border border-white/20 text-center relative z-10">
+                        <div class="mx-auto mb-6 w-28 h-28 rounded-full bg-white p-1 shadow-xl">${logoImg('w-full h-full')}</div>
+                        <h1 class="text-3xl font-extrabold mb-1 tracking-tight">Bank Sampah Teratai</h1>
+                        <p class="text-emerald-200 text-xs font-semibold mb-4">RW 04 Pondok Pucung Indah 1, Tangerang Selatan</p>
+                        <p class="text-emerald-100 mb-8 text-sm leading-relaxed">Kelola dan pilah sampah rumah tangga Anda. Dapatkan imbalan tabungan langsung sembari menjaga lingkungan kita.</p>
+                        
+                        <div class="space-y-3">
+                            <button onclick="goToAuth('nasabah')" class="w-full bg-white text-emerald-800 hover:bg-emerald-50 font-bold py-3.5 px-6 rounded-2xl shadow-lg transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-user-gear"></i>
+                                <span>Masuk / Daftar Nasabah</span>
+                            </button>
+                            <button onclick="goToAuth('admin')" class="w-full bg-emerald-900/60 hover:bg-emerald-900 text-white font-semibold py-3.5 px-6 rounded-2xl shadow-lg border border-emerald-400/30 transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-user-shield"></i>
+                                <span>Portal Admin / Pengelola</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function goToAuth(role) {
+            selectedAuthRole = role;
+            currentView = 'auth';
+            render();
+        }
+
+        function renderAuthScreen() {
+            return `
+                <div class="flex-1 flex flex-col items-center justify-center p-6 bg-slate-100">
+                    <div class="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
+                        <button onclick="currentView='welcome'; render();" class="text-emerald-600 hover:text-emerald-800 flex items-center space-x-2 mb-6 text-sm font-semibold">
+                            <i class="fa-solid fa-arrow-left"></i>
+                            <span>Kembali ke Halaman Depan</span>
+                        </button>
+
+                        <div class="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 class="text-2xl font-bold text-slate-800">${selectedAuthRole === 'admin' ? 'Login Admin' : (authMode === 'login' ? 'Masuk Nasabah' : 'Pendaftaran Nasabah')}</h2>
+                                <p class="text-xs text-slate-500 mt-0.5">${selectedAuthRole === 'admin' ? 'Masuk ke panel pengelola' : (authMode === 'login' ? 'Silakan masuk ke akun Anda' : 'Buat akun baru untuk mulai menabung')}</p>
+                            </div>
+                            <div class="flex flex-col items-end space-y-2">${logoImg('w-14 h-14')}<span class="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full uppercase">${selectedAuthRole}</span></div>
+                        </div>
+
+                        ${selectedAuthRole === 'nasabah' ? `
+                            <div class="flex bg-slate-100 p-1 rounded-2xl mb-6">
+                                <button onclick="authMode='login'; render();" class="flex-1 py-2 text-sm font-semibold rounded-xl transition ${authMode === 'login' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">Masuk</button>
+                                <button onclick="authMode='register'; render();" class="flex-1 py-2 text-sm font-semibold rounded-xl transition ${authMode === 'register' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">Daftar Akun Baru</button>
+                            </div>
+                        ` : ''}
+
+                        <form onsubmit="handleAuthSubmit(event)" class="space-y-4">
+                            ${authMode === 'register' && selectedAuthRole === 'nasabah' ? `
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nama Lengkap</label>
+                                    <input type="text" id="reg-name" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" placeholder="Contoh: Rina Wijaya">
+                                </div>
+                            ` : ''}
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nomor WhatsApp / HP</label>
+                                <input type="text" id="auth-phone" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" placeholder="Contoh: 08123456789" value="">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN / Kata Sandi</label>
+                                <input type="password" id="auth-pin" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" placeholder="Masukkan PIN" value="">
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 mt-2">
+                                <span>${selectedAuthRole === 'admin' ? 'Masuk Dashboard Admin' : (authMode === 'login' ? 'Masuk Sekarang' : 'Daftar & Otomatis Terhubung')}</span>
+                                <i class="fa-solid fa-arrow-right"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function handleAuthSubmit(event) {
+            event.preventDefault();
+            const phone = document.getElementById('auth-phone').value.trim();
+            const pin = document.getElementById('auth-pin').value.trim();
+            let users = JSON.parse(localStorage.getItem('bs_users'));
+
+            if (authMode === 'login' || selectedAuthRole === 'admin') {
+                const found = users.find(u => u.phone === phone && u.pin === pin && u.role === selectedAuthRole);
+                if (found) {
+                    currentUser = found;
+                    localStorage.setItem('bs_current_user', JSON.stringify(currentUser));
+                    showToast(`Selamat datang kembali, ${currentUser.name}!`);
+                    render();
+                } else {
+                    showToast('Nomor HP atau PIN salah / role tidak sesuai!', 'error');
+                }
+            } else {
+                // REGISTRATION NASABAH - AUTOMATICALLY CREATED IN SYSTEM & VISIBLE TO ADMIN
+                const name = document.getElementById('reg-name').value.trim();
+                if (users.some(u => u.phone === phone)) {
+                    showToast('Nomor HP sudah terdaftar!', 'error');
+                    return;
+                }
+                const today = todayStr();
+                const newUser = {
+                    id: 'u_' + Date.now(),
+                    phone,
+                    pin,
+                    name,
+                    role: 'nasabah',
+                    saldo: 0,
+                    joinedDate: today,
+                    status: 'Aktif'
+                };
+                users.push(newUser);
+                localStorage.setItem('bs_users', JSON.stringify(users));
+                currentUser = newUser;
+                localStorage.setItem('bs_current_user', JSON.stringify(currentUser));
+                showToast('Pendaftaran Berhasil! Data Anda sudah terdaftar di sistem Bank Sampah.');
+                render();
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('bs_current_user');
+            currentView = 'welcome';
+            showToast('Berhasil keluar akun.');
+            render();
+        }
+
+        function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+        function kg(n) { return (Math.round((n || 0) * 1000) / 1000).toLocaleString('id-ID', { maximumFractionDigits: 3 }); }
+        function berat(n) { return (n > 0 && n < 1) ? Math.round(n * 1000).toLocaleString('id-ID') + ' gram' : kg(n) + ' kg'; }
+        function rpf(n) { return 'Rp ' + (n || 0).toLocaleString('id-ID'); }
+
+        function renderNasabahPortal() {
+            const setoranList = JSON.parse(localStorage.getItem('bs_setoran')).filter(s => s.userId === currentUser.id);
+            const totalBerat = setoranList.filter(s => s.status === 'Selesai').reduce((acc, curr) => acc + curr.actWeight, 0);
+            const prices = JSON.parse(localStorage.getItem('bs_prices'));
+            const tabs = [['beranda','fa-house','Beranda'],['pilah','fa-book-open','Pilah'],['riwayat','fa-clock-rotate-left','Riwayat'],['karya','fa-wand-magic-sparkles','Karya']];
+
+            return `
+                <div class="flex-1 bg-slate-200">
+                    <div class="w-full max-w-md mx-auto min-h-screen bg-slate-50 relative shadow-2xl">
+                        <header class="sticky top-0 z-30 bg-emerald-700 text-white px-4 pb-3 flex items-center justify-between" style="padding-top:max(0.75rem, env(safe-area-inset-top))">
+                            <div class="flex items-center space-x-3 min-w-0">
+                                ${logoImg('w-10 h-10 shrink-0')}
+                                <div class="min-w-0">
+                                    <p class="text-[11px] text-emerald-200 leading-none mb-1">Bank Sampah Teratai</p>
+                                    <h1 class="font-bold text-base leading-none truncate">Halo, ${esc(currentUser.name)}</h1>
+                                </div>
+                            </div>
+                            <button onclick="logout()" aria-label="Keluar" class="w-10 h-10 rounded-2xl bg-white/15 active:bg-white/30 flex items-center justify-center shrink-0">
+                                <i class="fa-solid fa-right-from-bracket"></i>
+                            </button>
+                        </header>
+
+                        <main class="p-4 space-y-4" style="padding-bottom:6.5rem">
+                            ${activeNasabahTab === 'beranda' ? renderNasabahBeranda(setoranList, prices, totalBerat) : ''}
+                            ${activeNasabahTab === 'pilah' ? renderNasabahPilah(prices) : ''}
+                            ${activeNasabahTab === 'riwayat' ? renderNasabahRiwayat(setoranList) : ''}
+                            ${activeNasabahTab === 'karya' ? renderNasabahKarya() : ''}
+                        </main>
+                    </div>
+
+                    <nav class="fixed bottom-0 inset-x-0 z-40">
+                        <div class="max-w-md mx-auto bg-white border-t border-slate-200 grid grid-cols-4 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]" style="padding-bottom:env(safe-area-inset-bottom)">
+                            ${tabs.map(t => `
+                                <button onclick="activeNasabahTab='${t[0]}'; render(); window.scrollTo(0,0);" class="relative flex flex-col items-center justify-center py-2.5 text-[11px] font-semibold ${activeNasabahTab === t[0] ? 'text-emerald-700' : 'text-slate-400'}">
+                                    ${activeNasabahTab === t[0] ? '<span class="absolute top-0 w-8 h-1 bg-emerald-600 rounded-b-full"></span>' : ''}
+                                    <i class="fa-solid ${t[1]} text-lg mb-1"></i><span>${t[2]}</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </nav>
+                </div>
+            `;
+        }
+
+        function renderNasabahBeranda(setoranList, prices, totalBerat) {
+            const freshUser = JSON.parse(localStorage.getItem('bs_users')).find(u => u.id === currentUser.id);
+            currentUser.saldo = freshUser ? freshUser.saldo : 0;
+
+            const selesai = setoranList.filter(s => s.status === 'Selesai');
+            const categorySummary = {};
+            Object.keys(prices).forEach(cat => categorySummary[cat] = 0);
+            selesai.forEach(s => { if (categorySummary[s.category] !== undefined) categorySummary[s.category] += s.actWeight; });
+
+            const thisYear = String(new Date().getFullYear());
+            const years = [...new Set(selesai.map(s => s.date.slice(0, 4)).concat(thisYear))].sort().reverse();
+            if (!selectedYear || !years.includes(selectedYear)) selectedYear = years[0];
+            const yearData = selesai.filter(s => s.date.slice(0, 4) === selectedYear);
+            const yearBerat = yearData.reduce((a, s) => a + s.actWeight, 0);
+            const yearRupiah = yearData.reduce((a, s) => a + s.totalValue, 0);
+            const monthlyData = BULAN.map((nama, i) => {
+                const key = selectedYear + '-' + String(i + 1).padStart(2, '0');
+                const rows = yearData.filter(s => s.date.slice(0, 7) === key);
+                return { nama, kg: rows.reduce((a, s) => a + s.actWeight, 0), rp: rows.reduce((a, s) => a + s.totalValue, 0) };
+            });
+
+            let anniversaryHtml = '';
+            const joined = new Date((freshUser && freshUser.joinedDate ? freshUser.joinedDate : currentUser.joinedDate) + 'T00:00:00');
+            const now = new Date();
+            const monthsElapsed = (now.getFullYear() - joined.getFullYear()) * 12 + (now.getMonth() - joined.getMonth()) - (now.getDate() < joined.getDate() ? 1 : 0);
+            const yearsDone = Math.floor(monthsElapsed / 12);
+            if (yearsDone >= 1) {
+                const startIdx = joined.getFullYear() * 12 + joined.getMonth() + (yearsDone - 1) * 12;
+                const months = [];
+                for (let i = 0; i < 12; i++) {
+                    const idx = startIdx + i;
+                    const y = Math.floor(idx / 12), m = idx % 12;
+                    const key = y + '-' + String(m + 1).padStart(2, '0');
+                    const rows = selesai.filter(s => s.date.slice(0, 7) === key);
+                    months.push({ label: BULAN[m] + ' ' + y, kg: rows.reduce((a, s) => a + s.actWeight, 0), rp: rows.reduce((a, s) => a + s.totalValue, 0) });
+                }
+                const annKg = months.reduce((a, m) => a + m.kg, 0);
+                const annRp = months.reduce((a, m) => a + m.rp, 0);
+                const seenKey = 'bs_anniv_seen_' + currentUser.id + '_' + yearsDone;
+                if (!localStorage.getItem(seenKey)) {
+                    localStorage.setItem(seenKey, '1');
+                    setTimeout(() => showToast('Selamat! Anda berhasil mencapai ' + (yearsDone === 1 ? 'setahun' : yearsDone + ' tahun') + ' memilah sampah!'), 400);
+                }
+                anniversaryHtml = `
+                    <div class="bg-gradient-to-r from-amber-100 via-yellow-50 to-amber-100 rounded-3xl p-4 border border-amber-300">
+                        <div class="flex items-start space-x-3 mb-3">
+                            <div class="w-10 h-10 bg-amber-400 text-white rounded-xl flex items-center justify-center shrink-0"><i class="fa-solid fa-trophy"></i></div>
+                            <div>
+                                <h3 class="font-extrabold text-amber-900 text-sm leading-snug">Selamat! ${yearsDone === 1 ? 'Setahun' : yearsDone + ' Tahun'} Memilah Sampah</h3>
+                                <p class="text-[11px] text-amber-800 mt-0.5">${months[0].label} sampai ${months[11].label}</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="bg-white/80 p-3 rounded-xl border border-amber-200"><p class="text-[10px] text-amber-800 font-semibold uppercase">Total Sampah</p><p class="text-lg font-extrabold text-emerald-700">${kg(annKg)} kg</p></div>
+                            <div class="bg-white/80 p-3 rounded-xl border border-amber-200"><p class="text-[10px] text-amber-800 font-semibold uppercase">Penghasilan</p><p class="text-lg font-extrabold text-emerald-700">${rpf(annRp)}</p></div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-700 text-white rounded-3xl p-5 shadow-lg relative overflow-hidden">
+                    <div class="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full pointer-events-none"></div>
+                    <p class="text-emerald-100 text-[11px] font-semibold uppercase tracking-wider">Total Saldo Tabungan</p>
+                    <h2 class="text-3xl font-black tracking-tight mt-1">${rpf(currentUser.saldo)}</h2>
+                    <div class="mt-3 inline-flex items-center space-x-2 bg-white/15 px-3 py-1.5 rounded-full text-xs font-semibold">
+                        <i class="fa-solid fa-weight-hanging"></i><span>${kg(totalBerat)} kg sampah terkumpul</span>
+                    </div>
+                    <div class="mt-4 -mx-1 flex gap-2 overflow-x-auto no-scrollbar px-1">
+                        ${Object.keys(categorySummary).map(cat => `
+                            <div class="shrink-0 bg-black/10 px-3 py-2 rounded-xl border border-white/10 text-center min-w-[84px]">
+                                <p class="text-[10px] text-emerald-200 uppercase">${cat}</p>
+                                <p class="text-sm font-bold">${kg(categorySummary[cat])} kg</p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                ${anniversaryHtml}
+
+                <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+                    <h3 class="font-bold text-slate-800 text-base mb-3 flex items-center space-x-2"><i class="fa-solid fa-chart-column text-emerald-600"></i><span>Rekap Per Bulan</span></h3>
+                    <div class="flex gap-2 overflow-x-auto no-scrollbar mb-3">
+                        ${years.map(y => `<button onclick="selectedYear='${y}'; render();" class="shrink-0 px-4 py-1.5 rounded-full text-xs font-bold border ${y === selectedYear ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200'}">${y}</button>`).join('')}
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 mb-3">
+                        <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p class="text-[10px] text-slate-500 font-semibold uppercase">Sampah ${selectedYear}</p><p class="text-lg font-extrabold text-emerald-700">${kg(yearBerat)} kg</p></div>
+                        <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p class="text-[10px] text-slate-500 font-semibold uppercase">Penghasilan ${selectedYear}</p><p class="text-lg font-extrabold text-emerald-700">${rpf(yearRupiah)}</p></div>
+                    </div>
+                    <div class="divide-y divide-slate-100">
+                        ${monthlyData.map(m => `
+                            <div class="flex items-center justify-between py-2.5 ${m.kg === 0 ? 'opacity-40' : ''}">
+                                <span class="text-sm font-semibold text-slate-800">${m.nama}</span>
+                                <span class="text-right"><span class="block text-xs text-slate-500">${kg(m.kg)} kg</span><span class="block text-sm font-bold text-emerald-700">${rpf(m.rp)}</span></span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+                    <h3 class="font-bold text-slate-800 text-base mb-3 flex items-center space-x-2"><i class="fa-solid fa-tags text-emerald-600"></i><span>Patokan Harga Sampah</span></h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        ${Object.keys(prices).map(cat => `
+                            <div class="bg-emerald-50/60 p-3 rounded-2xl border border-emerald-100">
+                                <p class="text-[11px] text-slate-500 font-semibold">${cat}</p>
+                                <p class="text-emerald-700 font-extrabold text-sm">${rpf(prices[cat])} <span class="text-[10px] font-normal text-slate-400">/ kg</span></p>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderNasabahPilah(prices) {
+            const panduan = [
+                { title: 'Kardus, Majalah, Buku & HVS', icon: 'fa-box-archive', desc: 'Buka lipatan kardus hingga rata, jaga semua kertas tetap kering, dan lepaskan isolasi atau plastik yang menempel.' },
+                { title: 'Botol & Gelas Bersih', icon: 'fa-bottle-water', desc: 'Kosongkan sisa isi dan bilas hingga bersih. Lepaskan tutupnya dan pisahkan, karena harganya berbeda.' },
+                { title: 'Tutup Botol & Tutup Galon', icon: 'fa-circle-dot', desc: 'Kumpulkan terpisah dari botol atau galonnya, dalam wadah tersendiri.' },
+                { title: 'Besi, Aluminium & Kaleng', icon: 'fa-cubes-stacked', desc: 'Bersihkan sisa makanan pada kaleng dan keringkan. Pisahkan besi dari aluminium karena harganya jauh berbeda.' },
+                { title: 'Aki Motor', icon: 'fa-car-battery', desc: 'Jangan dibongkar dan jangan dimiringkan agar cairan aki tidak tumpah. Bawa dalam kondisi utuh dan cuci tangan setelah memegangnya.' },
+                { title: 'Beling', icon: 'fa-glass-water-droplet', desc: 'Pastikan tidak ada pecahan tajam yang membahayakan. Bungkus pecahan dengan kardus atau kain tebal.' },
+                { title: 'Emberan', icon: 'fa-bucket', desc: 'Pastikan sudah kering dan tidak ada sisa isi yang tertinggal sebelum ditimbang.' }
+            ];
+            return `
+                <div>
+                    <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2"><i class="fa-solid fa-book-open text-emerald-600"></i><span>Panduan Memilah Sampah</span></h3>
+                    <p class="text-slate-500 text-xs mt-1">Sampah yang dipilah dengan benar dihargai maksimal saat ditimbang.</p>
+                </div>
+                <div class="space-y-3">
+                    ${panduan.map(p => `
+                        <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start space-x-3">
+                            <div class="w-11 h-11 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center shrink-0"><i class="fa-solid ${p.icon}"></i></div>
+                            <div>
+                                <h4 class="font-bold text-slate-800 text-sm mb-0.5">${p.title}</h4>
+                                <p class="text-slate-600 text-xs leading-relaxed">${p.desc}</p>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderNasabahRiwayat(setoranList) {
+            return `
+                <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2"><i class="fa-solid fa-clock-rotate-left text-emerald-600"></i><span>Riwayat Setoran</span></h3>
+                ${setoranList.length === 0 ? `
+                    <div class="text-center py-16 text-slate-400">
+                        <i class="fa-regular fa-folder-open text-4xl mb-3 opacity-50"></i>
+                        <p class="text-sm">Belum ada riwayat setoran sampah.</p>
+                    </div>
+                ` : `
+                    <div class="space-y-3">
+                        ${setoranList.map(s => {
+                            const done = s.status === 'Selesai';
+                            return `
+                            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="flex items-center space-x-3 min-w-0">
+                                        <div class="w-10 h-10 ${done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} rounded-xl flex items-center justify-center shrink-0"><i class="fa-solid ${done ? 'fa-circle-check' : 'fa-hourglass-half'}"></i></div>
+                                        <div class="min-w-0">
+                                            <p class="font-bold text-slate-800 text-sm truncate">${s.category}</p>
+                                            <p class="text-[11px] text-slate-400">${s.date}</p>
+                                        </div>
+                                    </div>
+                                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${s.status}</span>
+                                </div>
+                                <div class="mt-3 pt-3 border-t border-slate-100 flex items-end justify-between">
+                                    <div><p class="text-[10px] text-slate-400 uppercase">Timbangan Petugas</p><p class="font-bold text-slate-800 text-sm">${done ? berat(s.actWeight) : 'Belum ditimbang'}</p></div>
+                                    <p class="text-emerald-700 font-extrabold text-base">${done ? rpf(s.totalValue) : 'Menunggu'}</p>
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                `}
+            `;
+        }
+
+        function renderNasabahKarya() {
+            const karyaList = JSON.parse(localStorage.getItem('bs_karya'));
+            return `
+                <div>
+                    <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2"><i class="fa-solid fa-wand-magic-sparkles text-emerald-600"></i><span>Karya Daur Ulang</span></h3>
+                    <p class="text-slate-500 text-xs mt-1">Inspirasi produk bernilai jual dari sampah terpilah.</p>
+                </div>
+                <div class="space-y-4">
+                    ${karyaList.length === 0 ? '<div class=\"bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400 text-sm\">Belum ada karya daur ulang.</div>' : ''}
+                    ${karyaList.map(k => `
+                        <div class="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
+                            <img src="${k.image}" alt="${k.title}" class="w-full h-44 object-cover bg-slate-100">
+                            <div class="p-4">
+                                <span class="px-2.5 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg inline-block mb-2">${k.category}</span>
+                                <h4 class="font-bold text-slate-800 text-sm mb-1">${k.title}</h4>
+                                <p class="text-slate-600 text-xs leading-relaxed">${k.desc}</p>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderAdminPortal() {
+            const setoranList = JSON.parse(localStorage.getItem('bs_setoran'));
+            const usersList = JSON.parse(localStorage.getItem('bs_users')).filter(u => u.role === 'nasabah');
+            const prices = JSON.parse(localStorage.getItem('bs_prices'));
+
+            const totalSaldoAll = usersList.reduce((acc, u) => acc + (u.saldo || 0), 0);
+            const pendingCount = setoranList.filter(s => s.status === 'Menunggu Ditimbang').length;
+            const totalBeratAll = setoranList.filter(s => s.status === 'Selesai').reduce((acc, s) => acc + s.actWeight, 0);
+
+            return `
+                <div class="flex-1 flex flex-col bg-slate-100">
+                    <!-- Top Navbar Admin -->
+                    <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+                        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                ${logoImg('w-10 h-10 shrink-0')}
+                                <div>
+                                    <h1 class="font-bold text-slate-800 text-base leading-tight">Panel Pengelola / Admin</h1>
+                                    <p class="text-xs text-slate-500">Bank Sampah Teratai</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button onclick="logout()" class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-2 rounded-xl transition flex items-center space-x-1.5">
+                                    <i class="fa-solid fa-right-from-bracket"></i>
+                                    <span>Keluar</span>
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Admin Navigation Tabs -->
+                        <div class="bg-teal-900 text-white shadow-inner">
+                            <div class="max-w-7xl mx-auto px-4 flex space-x-1 overflow-x-auto custom-scrollbar">
+                                <button onclick="activeAdminTab='dashboard'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'dashboard' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                    <i class="fa-solid fa-chart-pie"></i><span>Dashboard</span>
+                                </button>
+                                <button onclick="activeAdminTab='setoran'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'setoran' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                    <i class="fa-solid fa-scale-balanced"></i><span>Setoran</span>
+                                </button>
+                                <button onclick="activeAdminTab='nasabah'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'nasabah' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                    <i class="fa-solid fa-users"></i><span>Data Nasabah (${usersList.length})</span>
+                                </button>
+                                <button onclick="activeAdminTab='harga'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'harga' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                    <i class="fa-solid fa-tags"></i><span>Harga Sampah</span>
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <!-- Main Admin Content Area -->
+                    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 pb-20">
+                        ${activeAdminTab === 'dashboard' ? renderAdminDashboard(usersList, setoranList, totalSaldoAll, pendingCount, totalBeratAll, prices) : ''}
+                        ${activeAdminTab === 'setoran' ? renderAdminSetoran(setoranList, prices) : ''}
+                        ${activeAdminTab === 'nasabah' ? renderAdminNasabah(usersList, setoranList) : ''}
+                        ${activeAdminTab === 'harga' ? renderAdminHarga(prices) : ''}
+                    </main>
+                </div>
+            `;
+        }
+
+        function renderAdminDashboard(usersList, setoranList, totalSaldoAll, pendingCount, totalBeratAll, prices) {
+            const perTahun = getSaldoPerTahun(setoranList);
+            const yearSet = new Set(Object.keys(perTahun));
+            yearSet.add(String(new Date().getFullYear()));
+            yearSet.add(adminSaldoYear);
+            const yearOptions = [...yearSet].sort().reverse();
+            const saldoTahunIni = perTahun[adminSaldoYear] || 0;
+            const bulanIni = todayStr().slice(0, 7);
+            const setoranBulanIni = setoranList.filter(x => (x.date || '').startsWith(bulanIni)).length;
+            return `
+                <div class="space-y-6">
+                    <!-- Dashboard Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                                <i class="fa-solid fa-users"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-500 font-semibold uppercase">Total Nasabah Terdaftar</p>
+                                <h3 class="text-2xl font-black text-slate-800">${usersList.length} <span class="text-xs font-normal text-emerald-600">(Otomatis Sync)</span></h3>
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                                <i class="fa-solid fa-clipboard-list"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-500 font-semibold uppercase">Setoran Bulan Ini</p>
+                                <h3 class="text-2xl font-black text-slate-800">${setoranBulanIni}</h3>
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-teal-100 text-teal-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                                <i class="fa-solid fa-wallet"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-500 font-semibold uppercase">Total Saldo Tahun ${adminSaldoYear}</p>
+                                <h3 class="text-xl font-black text-slate-800">Rp ${saldoTahunIni.toLocaleString('id-ID')}</h3>
+                                <p class="text-[10px] text-slate-400">Saldo berjalan semua nasabah: Rp ${totalSaldoAll.toLocaleString('id-ID')}</p>
+                            </div>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
+                            <div class="w-12 h-12 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                                <i class="fa-solid fa-scale-balanced"></i>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-500 font-semibold uppercase">Total Terolah</p>
+                                <h3 class="text-2xl font-black text-slate-800">${kg(totalBeratAll)} kg</h3>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grafik Saldo -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+                            <h4 class="font-bold text-slate-800 text-sm mb-3"><i class="fa-solid fa-chart-column text-teal-700 mr-2"></i>Total Saldo per Tahun</h4>
+                            <div class="relative h-64"><canvas id="chart-saldo-tahun"></canvas></div>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+                            <div class="flex items-center justify-between mb-3">
+                                <h4 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-chart-line text-amber-500 mr-2"></i>Saldo per Bulan</h4>
+                                <select onchange="adminSaldoYear = this.value; render();" class="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                                    ${yearOptions.map(y => `<option value="${y}" ${y === adminSaldoYear ? 'selected' : ''}>${y}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="relative h-64"><canvas id="chart-saldo-bulan"></canvas></div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Action Banner -->
+                    <div class="bg-gradient-to-r from-teal-800 to-slate-800 text-white rounded-3xl p-6 shadow-md flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div class="space-y-1">
+                            <h4 class="font-bold text-lg"><i class="fa-solid fa-bolt text-amber-400 mr-2"></i>Pendaftaran Nasabah Berjalan Otomatis</h4>
+                            <p class="text-xs text-teal-200">Setiap nasabah yang melakukan pendaftaran mandiri dari web/HP akan langsung tercatat secara otomatis di tabel Data Nasabah tanpa perlu input manual.</p>
+                        </div>
+                        <button onclick="activeAdminTab='nasabah'; render();" class="bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold px-5 py-2.5 rounded-xl text-xs transition shadow shrink-0">
+                            Lihat Data Nasabah Terbaru
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminSetoran(setoranList, prices) {
+            const nasabahOptions = JSON.parse(localStorage.getItem('bs_users')).filter(u => u.role === 'nasabah');
+            const rows = [...setoranList].sort((a, b) => b.date.localeCompare(a.date));
+            return `
+                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 mb-6">
+                    <h3 class="font-bold text-slate-800 text-lg mb-1 flex items-center space-x-2">
+                        <i class="fa-solid fa-circle-plus text-teal-700"></i>
+                        <span>Input Setoran Sampah Nasabah</span>
+                    </h3>
+                    <p class="text-xs text-slate-500 mb-4">Nasabah datang langsung pada jadwal penimbangan. Catat hasil timbangan di sini, saldo nasabah otomatis bertambah sesuai harga per kategori.</p>
+                    <form onsubmit="handleAdminInputSetoran(event)" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nasabah</label>
+                            <select id="admin-setor-user" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
+                                ${nasabahOptions.map(u => `<option value="${u.id}">${esc(u.name)} (${esc(u.phone)})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tanggal Timbang</label>
+                            <input type="date" id="admin-setor-date" required value="${todayStr()}" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Kategori Sampah</label>
+                            <select id="admin-setor-category" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
+                                ${Object.keys(prices).map(cat => `<option value="${cat}">${cat} (Rp ${prices[cat].toLocaleString('id-ID')}/kg)</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Berat (kg)</label>
+                            <input type="text" inputmode="decimal" autocomplete="off" id="admin-setor-weight" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" placeholder="Contoh: 3,5 atau 0,25 (250 gram)">
+                        </div>
+                        <div class="flex items-end">
+                            <button type="submit" class="w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 px-6 rounded-xl shadow-md transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-floppy-disk"></i><span>Simpan</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 space-y-4">
+                    <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
+                        <i class="fa-solid fa-scale-balanced text-teal-700"></i>
+                        <span>Riwayat Seluruh Setoran</span>
+                    </h3>
+                    ${rows.length === 0 ? `
+                        <div class="text-center py-12 text-slate-400"><i class="fa-solid fa-box-open text-4xl mb-2 opacity-50"></i><p>Belum ada data setoran.</p></div>
+                    ` : `
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-slate-600">
+                                <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                                    <tr>
+                                        <th class="p-3.5 rounded-l-xl">Nasabah</th>
+                                        <th class="p-3.5">Tanggal</th>
+                                        <th class="p-3.5">Kategori</th>
+                                        <th class="p-3.5">Berat</th>
+                                        <th class="p-3.5 rounded-r-xl">Nilai</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${rows.map(x => `
+                                        <tr class="hover:bg-slate-50 transition">
+                                            <td class="p-3.5 font-bold text-slate-800">${esc(x.userName)}</td>
+                                            <td class="p-3.5 text-xs text-slate-500">${x.date}</td>
+                                            <td class="p-3.5 font-semibold text-slate-800">${x.category}</td>
+                                            <td class="p-3.5 font-bold text-slate-800">${berat(x.actWeight)}</td>
+                                            <td class="p-3.5"><span class="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">Rp ${x.totalValue.toLocaleString('id-ID')}</span></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function handleAdminInputSetoran(event) {
+            event.preventDefault();
+            const userId = document.getElementById('admin-setor-user').value;
+            const category = document.getElementById('admin-setor-category').value;
+            const actWeight = Math.round(parseFloat(String(document.getElementById('admin-setor-weight').value).trim().replace(',', '.')) * 1000) / 1000;
+            const date = document.getElementById('admin-setor-date').value || todayStr();
+
+            if (!userId || !actWeight || actWeight <= 0) {
+                showToast('Lengkapi data setoran dengan benar!', 'error');
+                return;
+            }
+
+            let setoranList = JSON.parse(localStorage.getItem('bs_setoran'));
+            let usersList = JSON.parse(localStorage.getItem('bs_users'));
+            let prices = JSON.parse(localStorage.getItem('bs_prices'));
+
+            const userIndex = usersList.findIndex(u => u.id === userId);
+            if (userIndex === -1) {
+                showToast('Nasabah tidak ditemukan!', 'error');
+                return;
+            }
+
+            const totalValue = Math.round(actWeight * (prices[category] || 0));
+
+            setoranList.unshift({
+                id: 's_' + Date.now(),
+                userId,
+                userName: usersList[userIndex].name,
+                category,
+                estWeight: null,
+                actWeight,
+                status: 'Selesai',
+                date,
+                totalValue
+            });
+            usersList[userIndex].saldo = (usersList[userIndex].saldo || 0) + totalValue;
+
+            localStorage.setItem('bs_setoran', JSON.stringify(setoranList));
+            localStorage.setItem('bs_users', JSON.stringify(usersList));
+
+            showToast(`Setoran tersimpan! Saldo ${usersList[userIndex].name} bertambah Rp ${totalValue.toLocaleString('id-ID')}`);
+            render();
+        }
+
+        function renderAdminNasabah(usersList, setoranList) {
+            const filteredUsers = usersList.filter(u => 
+                u.name.toLowerCase().includes(nasabahSearchQuery.toLowerCase()) || 
+                u.phone.includes(nasabahSearchQuery)
+            );
+
+            return `
+                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 space-y-6">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
+                                <i class="fa-solid fa-users text-teal-700"></i>
+                                <span>Data Nasabah Terintegrasi</span>
+                            </h3>
+                            <p class="text-xs text-slate-500">Seluruh pendaftaran nasabah dari website/HP akan otomatis muncul di sini tanpa perlu diinput manual.</p>
+                        </div>
+                        <button onclick="openTambahNasabahModal()" class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow transition flex items-center space-x-2 self-start md:self-auto">
+                            <i class="fa-solid fa-user-plus"></i>
+                            <span>Tambah Nasabah Manual</span>
+                        </button>
+                    </div>
+
+                    <!-- Search Input -->
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-slate-400 text-sm"></i>
+                        <input type="text" id="search-nasabah" value="${nasabahSearchQuery}" oninput="nasabahSearchQuery = this.value; render(); const si = document.getElementById('search-nasabah'); si.focus(); si.setSelectionRange(si.value.length, si.value.length);" class="w-full pl-11 pr-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" placeholder="Cari nama atau nomor HP nasabah...">
+                    </div>
+
+                    <!-- Nasabah Table -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm text-slate-600">
+                            <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                                <tr>
+                                    <th class="p-3.5 rounded-l-xl">Nama Nasabah</th>
+                                    <th class="p-3.5">Nomor WhatsApp</th>
+                                    <th class="p-3.5">Tgl Bergabung</th>
+                                    <th class="p-3.5">Total Sampah</th>
+                                    <th class="p-3.5">Total Saldo</th>
+                                    <th class="p-3.5">Status</th>
+                                    <th class="p-3.5 rounded-r-xl text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                ${filteredUsers.length === 0 ? `
+                                    <tr>
+                                        <td colspan="7" class="p-8 text-center text-slate-400">
+                                            Tidak ada data nasabah yang sesuai.
+                                        </td>
+                                    </tr>
+                                ` : filteredUsers.map(u => {
+                                    const userSetorans = setoranList.filter(s => s.userId === u.id && s.status === 'Selesai');
+                                    const totalKg = userSetorans.reduce((acc, s) => acc + s.actWeight, 0);
+                                    return `
+                                        <tr class="hover:bg-slate-50 transition">
+                                            <td class="p-3.5">
+                                                <p class="font-bold text-slate-800">${esc(u.name)}</p>
+                                                <p class="text-[10px] text-teal-700 font-semibold">ID: ${u.id}</p>
+                                            </td>
+                                            <td class="p-3.5 font-mono text-xs text-slate-700">${u.phone}</td>
+                                            <td class="p-3.5 text-xs text-slate-500">${u.joinedDate || '-'}</td>
+                                            <td class="p-3.5 font-bold text-slate-800">${kg(totalKg)} kg</td>
+                                            <td class="p-3.5 font-extrabold text-emerald-700">Rp ${(u.saldo || 0).toLocaleString('id-ID')}</td>
+                                            <td class="p-3.5">
+                                                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">${u.status || 'Aktif'}</span>
+                                            </td>
+                                            <td class="p-3.5 text-center">
+                                                <button onclick="openDetailNasabahModal('${u.id}')" class="bg-slate-100 hover:bg-teal-50 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs border border-slate-200 transition">
+                                                    <i class="fa-solid fa-circle-info mr-1"></i>Detail
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function openTambahNasabahModal() {
+            const container = document.getElementById('modal-container');
+            container.classList.remove('hidden');
+            container.innerHTML = `
+                <div class="bg-white max-w-md w-full p-6 rounded-3xl shadow-2xl space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <h3 class="font-bold text-slate-800 text-base flex items-center space-x-2">
+                            <i class="fa-solid fa-user-plus text-teal-700"></i>
+                            <span>Tambah Nasabah Manual</span>
+                        </h3>
+                        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+                    </div>
+
+                    <p class="text-xs text-amber-800 bg-amber-50 p-3 rounded-xl border border-amber-200">
+                        <strong>Catatan:</strong> Nasabah sebenarnya bisa mendaftar mandiri via web. Gunakan form ini hanya jika nasabah minta didaftarkan langsung oleh petugas admin.
+                    </p>
+
+                    <form onsubmit="handleManualAddNasabah(event)" class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nama Nasabah</label>
+                            <input type="text" id="add-nasabah-name" required class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" placeholder="Nama Lengkap">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nomor WhatsApp / HP</label>
+                            <input type="text" id="add-nasabah-phone" required class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" placeholder="Contoh: 08123456789">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN Akses (Awal)</label>
+                            <input type="password" id="add-nasabah-pin" required class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" value="123456">
+                        </div>
+                        <div class="pt-2 flex justify-end space-x-2">
+                            <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200">Batal</button>
+                            <button type="submit" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 shadow">Simpan Nasabah</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        function handleManualAddNasabah(event) {
+            event.preventDefault();
+            const name = document.getElementById('add-nasabah-name').value.trim();
+            const phone = document.getElementById('add-nasabah-phone').value.trim();
+            const pin = document.getElementById('add-nasabah-pin').value.trim();
+
+            let users = JSON.parse(localStorage.getItem('bs_users'));
+            if (users.some(u => u.phone === phone)) {
+                showToast('Nomor HP ini sudah terdaftar!', 'error');
+                return;
+            }
+
+            const newUser = {
+                id: 'u_' + Date.now(),
+                phone,
+                pin,
+                name,
+                role: 'nasabah',
+                saldo: 0,
+                joinedDate: todayStr(),
+                status: 'Aktif'
+            };
+
+            users.push(newUser);
+            localStorage.setItem('bs_users', JSON.stringify(users));
+            showToast('Nasabah baru berhasil ditambahkan!');
+            closeModal();
+            render();
+        }
+
+        function openDetailNasabahModal(userId) {
+            const users = JSON.parse(localStorage.getItem('bs_users'));
+            const setoranList = JSON.parse(localStorage.getItem('bs_setoran')).filter(s => s.userId === userId);
+            const user = users.find(u => u.id === userId);
+
+            if (!user) return;
+
+            const container = document.getElementById('modal-container');
+            container.classList.remove('hidden');
+            container.innerHTML = `
+                <div class="bg-white max-w-lg w-full p-6 rounded-3xl shadow-2xl space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base">${user.name}</h3>
+                            <p class="text-xs text-slate-500">HP: ${user.phone} • Bergabung: ${user.joinedDate || '-'}</p>
+                        </div>
+                        <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+                    </div>
+
+                    <div class="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 flex justify-between items-center">
+                        <div>
+                            <p class="text-xs text-slate-500 font-semibold">Total Saldo Terkumpul</p>
+                            <p class="text-2xl font-black text-emerald-700">Rp ${(user.saldo || 0).toLocaleString('id-ID')}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xs text-slate-500 font-semibold">Total Transaksi</p>
+                            <p class="text-lg font-bold text-slate-800">${setoranList.length}x Setoran</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <h4 class="font-bold text-slate-800 text-xs uppercase tracking-wider">Riwayat Setoran Nasabah Ini:</h4>
+                        <div class="max-h-56 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                            ${setoranList.length === 0 ? '<p class="text-xs text-slate-400">Belum pernah setor.</p>' : setoranList.map(s => `
+                                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                                    <div>
+                                        <p class="font-bold text-slate-800">${s.category} (${berat(s.actWeight || s.estWeight)})</p>
+                                        <p class="text-[10px] text-slate-400">${s.date} • Status: ${s.status}</p>
+                                    </div>
+                                    <p class="font-bold text-emerald-700">Rp ${s.totalValue.toLocaleString('id-ID')}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <div class="pt-2 flex justify-end">
+                        <button onclick="closeModal()" class="px-5 py-2 bg-slate-800 text-white font-bold text-xs rounded-xl">Tutup</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminHarga(prices) {
+            return `
+                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 space-y-6">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
+                            <i class="fa-solid fa-tags text-teal-700"></i>
+                            <span>Kelola Patokan Harga Sampah (per Kg)</span>
+                        </h3>
+                        <p class="text-slate-500 text-xs">Perubahan harga di sini otomatis berlaku saat admin memverifikasi timbangan nasabah.</p>
+                    </div>
+
+                    <form onsubmit="handleUpdateHarga(event)" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                        ${Object.keys(prices).map(cat => `
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">${cat} (Rp / kg)</label>
+                                <input type="number" id="price-${cat}" value="${prices[cat]}" required class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm font-bold">
+                            </div>
+                        `).join('')}
+                        <div class="md:col-span-2 pt-2">
+                            <button type="submit" class="bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 px-6 rounded-xl shadow transition flex items-center space-x-2 text-xs">
+                                <i class="fa-solid fa-floppy-disk"></i>
+                                <span>Simpan Perubahan Harga</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        }
+
+        function handleUpdateHarga(event) {
+            event.preventDefault();
+            let prices = JSON.parse(localStorage.getItem('bs_prices'));
+
+            Object.keys(prices).forEach(cat => {
+                const val = parseFloat(document.getElementById(`price-${cat}`).value);
+                if (!isNaN(val)) prices[cat] = val;
+            });
+
+            localStorage.setItem('bs_prices', JSON.stringify(prices));
+            showToast('Harga sampah berhasil diperbarui!');
+            render();
+        }
+
+        // Initial Run
+        render();
+    </script>
+</body>
+</html>
