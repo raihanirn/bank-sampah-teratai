@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Bank Sampah Teratai</title>
+    <link rel="icon" href="./favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+    <meta name="theme-color" content="#047857">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -23,9 +27,16 @@
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        html { -webkit-text-size-adjust: 100%; }
+        body { overflow-x: hidden; }
+        img { max-width: 100%; }
+        .min-h-app { min-height: 100vh; min-height: 100dvh; }
+        .modal-card { max-height: 90vh; max-height: 90dvh; overflow-y: auto; }
+        /* Cegah iOS zoom otomatis saat mengetuk input */
+        @media (max-width: 640px) { input, select, textarea { font-size: 16px !important; } }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 antialiased min-h-app flex flex-col">
 
     <div id="app" class="flex-1 flex flex-col">
         <div class="flex-1 flex items-center justify-center text-emerald-700 font-semibold text-sm">
@@ -94,45 +105,74 @@
         let selectedYear = null;
         const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 
-        function startRealtimeListeners() {
-            if (listenersStarted) return;
-            listenersStarted = true;
+        let unsubs = [];
+        let listenersKey = null;
 
-            db.collection('prices').doc('default').onSnapshot(doc => {
+        function stopRealtimeListeners() {
+            unsubs.forEach(u => u());
+            unsubs = [];
+            listenersKey = null;
+            dbUsers = [];
+            dbSetoran = [];
+            dbKarya = [];
+            dbPrices = { ...DEFAULT_PRICES };
+        }
+
+        // Admin membaca semua data; nasabah hanya membaca datanya sendiri (sesuai firestore.rules)
+        function startRealtimeListeners(user) {
+            if (!user) return;
+            const key = user.id + ':' + user.role;
+            if (listenersKey === key) return;
+            stopRealtimeListeners();
+            listenersKey = key;
+            const isAdmin = user.role === 'admin';
+            const onErr = name => err => console.error('Firestore ' + name + ' error:', err);
+
+            unsubs.push(db.collection('prices').doc('default').onSnapshot(doc => {
                 if (doc.exists) {
                     const data = doc.data();
-                    // Jika baru ada 1 field (misal Kardus saja), lengkapi otomatis dengan 13 kategori lainnya
+                    // Jika baru ada sebagian field, lengkapi otomatis dengan kategori lain (hanya admin yang boleh menulis)
                     if (Object.keys(data).length < Object.keys(DEFAULT_PRICES).length) {
                         const merged = { ...DEFAULT_PRICES, ...data };
-                        db.collection('prices').doc('default').set(merged);
+                        if (isAdmin) db.collection('prices').doc('default').set(merged).catch(onErr('prices-set'));
                         dbPrices = merged;
                     } else {
                         dbPrices = data;
                     }
                     render();
-                } else {
-                    db.collection('prices').doc('default').set(DEFAULT_PRICES);
+                } else if (isAdmin) {
+                    db.collection('prices').doc('default').set(DEFAULT_PRICES).catch(onErr('prices-set'));
                 }
-            }, err => console.error('Firestore prices error:', err));
+            }, onErr('prices')));
 
-            db.collection('users').onSnapshot(snapshot => {
-                dbUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const onUsers = docs => {
+                dbUsers = docs;
                 if (currentUser) {
                     const fresh = dbUsers.find(u => u.id === currentUser.id);
                     if (fresh) currentUser = fresh;
                 }
                 render();
-            }, err => console.error('Firestore users error:', err));
+            };
+            if (isAdmin) {
+                unsubs.push(db.collection('users').onSnapshot(
+                    snap => onUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))), onErr('users')));
+                unsubs.push(db.collection('setoran').onSnapshot(snapshot => {
+                    dbSetoran = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    render();
+                }, onErr('setoran')));
+            } else {
+                unsubs.push(db.collection('users').doc(user.id).onSnapshot(
+                    doc => onUsers(doc.exists ? [{ id: doc.id, ...doc.data() }] : []), onErr('users')));
+                unsubs.push(db.collection('setoran').where('userId', '==', user.id).onSnapshot(snapshot => {
+                    dbSetoran = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    render();
+                }, onErr('setoran')));
+            }
 
-            db.collection('setoran').onSnapshot(snapshot => {
-                dbSetoran = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                render();
-            }, err => console.error('Firestore setoran error:', err));
-
-            db.collection('karya').onSnapshot(snapshot => {
+            unsubs.push(db.collection('karya').onSnapshot(snapshot => {
                 dbKarya = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 render();
-            }, err => console.error('Firestore karya error:', err));
+            }, onErr('karya')));
         }
 
         function getSaldoPerTahun(setoranList) {
@@ -216,6 +256,10 @@
             container.innerHTML = '';
         }
 
+        document.getElementById('modal-container').addEventListener('click', e => {
+            if (e.target.id === 'modal-container') closeModal();
+        });
+
         function render() {
             const app = document.getElementById('app');
             destroyAdminCharts();
@@ -243,20 +287,20 @@
                     <div class="absolute -top-24 -left-24 w-96 h-96 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
                     <div class="absolute -bottom-24 -right-24 w-96 h-96 bg-emerald-400/20 rounded-full blur-3xl pointer-events-none"></div>
                     
-                    <div class="max-w-md w-full bg-white/10 backdrop-blur-xl p-8 rounded-3xl shadow-2xl border border-white/20 text-center relative z-10">
-                        <div class="mx-auto mb-6 w-28 h-28 rounded-full bg-white p-1 shadow-xl">${logoImg('w-full h-full')}</div>
-                        <h1 class="text-3xl font-extrabold mb-1 tracking-tight">Bank Sampah Teratai</h1>
+                    <div class="max-w-md w-full bg-white/10 backdrop-blur-xl p-6 sm:p-8 rounded-3xl shadow-2xl border border-white/20 text-center relative z-10">
+                        <div class="mx-auto mb-6 w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-white p-1 shadow-xl">${logoImg('w-full h-full')}</div>
+                        <h1 class="text-2xl sm:text-3xl font-extrabold mb-1 tracking-tight">Bank Sampah Teratai</h1>
                         <p class="text-emerald-200 text-xs font-semibold mb-4">RW 04 Pondok Pucung Indah 1, Tangerang Selatan</p>
                         <p class="text-emerald-100 mb-8 text-sm leading-relaxed">Kelola dan pilah sampah rumah tangga Anda. Dapatkan imbalan tabungan langsung sembari menjaga lingkungan kita.</p>
                         
                         <div class="space-y-3">
                             <button onclick="goToAuth('nasabah')" class="w-full bg-white text-emerald-800 hover:bg-emerald-50 font-bold py-3.5 px-6 rounded-2xl shadow-lg transition flex items-center justify-center space-x-2">
-                                <i class="fa-solid fa-user-gear"></i>
-                                <span>Masuk / Daftar Nasabah</span>
+                                
+                                <span>Portal Nasabah</span>
                             </button>
                             <button onclick="goToAuth('admin')" class="w-full bg-emerald-900/60 hover:bg-emerald-900 text-white font-semibold py-3.5 px-6 rounded-2xl shadow-lg border border-emerald-400/30 transition flex items-center justify-center space-x-2">
-                                <i class="fa-solid fa-user-shield"></i>
-                                <span>Portal Admin / Pengelola</span>
+                                
+                                <span>Portal Admin</span>
                             </button>
                         </div>
                     </div>
@@ -273,7 +317,7 @@
         function renderAuthScreen() {
             return `
                 <div class="flex-1 flex flex-col items-center justify-center p-6 bg-slate-100">
-                    <div class="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
+                    <div class="max-w-md w-full bg-white p-6 sm:p-8 rounded-3xl shadow-xl border border-slate-200">
                         <button onclick="currentView='welcome'; render();" class="text-emerald-600 hover:text-emerald-800 flex items-center space-x-2 mb-6 text-sm font-semibold">
                             <i class="fa-solid fa-arrow-left"></i>
                             <span>Kembali ke Halaman Depan</span>
@@ -281,10 +325,10 @@
 
                         <div class="flex items-center justify-between mb-6">
                             <div>
-                                <h2 class="text-2xl font-bold text-slate-800">${selectedAuthRole === 'admin' ? 'Login Admin' : (authMode === 'login' ? 'Masuk Nasabah' : 'Pendaftaran Nasabah')}</h2>
+                                <h2 class="text-xl sm:text-2xl font-bold text-slate-800">${selectedAuthRole === 'admin' ? 'Login Admin' : (authMode === 'login' ? 'Masuk Nasabah' : 'Pendaftaran Nasabah')}</h2>
                                 <p class="text-xs text-slate-500 mt-0.5">${selectedAuthRole === 'admin' ? 'Masuk ke panel pengelola' : (authMode === 'login' ? 'Silakan masuk ke akun Anda' : 'Buat akun baru untuk mulai menabung')}</p>
                             </div>
-                            <div class="flex flex-col items-end space-y-2">${logoImg('w-14 h-14')}<span class="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full uppercase">${selectedAuthRole}</span></div>
+                            <div class="flex flex-col items-end space-y-2 shrink-0">${logoImg('w-14 h-14')}<span class="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full uppercase">${selectedAuthRole}</span></div>
                         </div>
 
                         ${selectedAuthRole === 'nasabah' ? `
@@ -340,6 +384,7 @@
                     const userDoc = await db.collection('users').doc(cred.user.uid).get();
                     if (userDoc.exists && userDoc.data().role === selectedAuthRole) {
                         currentUser = { id: userDoc.id, ...userDoc.data() };
+                        startRealtimeListeners(currentUser);
                         showToast(`Selamat datang kembali, ${currentUser.name}!`);
                         render();
                     } else {
@@ -359,6 +404,7 @@
                     };
                     await db.collection('users').doc(cred.user.uid).set(newUser);
                     currentUser = { id: cred.user.uid, ...newUser };
+                    startRealtimeListeners(currentUser);
                     showToast('Pendaftaran Berhasil! Data Anda sudah terdaftar di cloud.');
                     render();
                 }
@@ -380,10 +426,11 @@
         }
 
         async function logout() {
+            stopRealtimeListeners();
             await auth.signOut();
             currentUser = null;
             currentView = 'welcome';
-            showToast('Berhasil keluar akun.');
+            closeModal(); activeNasabahTab = 'beranda'; showToast('Berhasil keluar akun.');
             render();
         }
 
@@ -396,34 +443,44 @@
             const setoranList = dbSetoran.filter(s => s.userId === currentUser.id);
             const totalBerat = setoranList.filter(s => s.status === 'Selesai').reduce((acc, curr) => acc + curr.actWeight, 0);
             const prices = dbPrices;
-            const tabs = [['beranda','fa-house','Beranda'],['pilah','fa-book-open','Pilah'],['riwayat','fa-clock-rotate-left','Riwayat'],['karya','fa-wand-magic-sparkles','Karya']];
+            const tabs = [['beranda','fa-house','Beranda'],['pilah','fa-book-open','Pilah'],['riwayat','fa-clock-rotate-left','Riwayat'],['karya','fa-wand-magic-sparkles','Karya'],['profil','fa-user','Profil']];
 
             return `
-                <div class="flex-1 bg-slate-200">
-                    <div class="w-full max-w-md mx-auto min-h-screen bg-slate-50 relative shadow-2xl">
-                        <header class="sticky top-0 z-30 bg-emerald-700 text-white px-4 pb-3 flex items-center justify-between" style="padding-top:max(0.75rem, env(safe-area-inset-top))">
-                            <div class="flex items-center space-x-3 min-w-0">
-                                ${logoImg('w-10 h-10 shrink-0')}
-                                <div class="min-w-0">
-                                    <p class="text-[11px] text-emerald-200 leading-none mb-1">Bank Sampah Teratai</p>
-                                    <h1 class="font-bold text-base leading-none truncate">Halo, ${esc(currentUser.name)}</h1>
+                <div class="flex-1 bg-slate-200 lg:bg-slate-50">
+                    <div class="w-full max-w-md md:max-w-2xl lg:max-w-none mx-auto min-h-app bg-slate-50 relative md:shadow-2xl lg:shadow-none">
+                        <header class="sticky top-0 z-30 bg-emerald-700 text-white px-4 lg:px-8 pb-3" style="padding-top:max(0.75rem, env(safe-area-inset-top))">
+                            <div class="flex items-center justify-between gap-4 lg:max-w-7xl lg:mx-auto">
+                                <div class="flex items-center space-x-3 min-w-0">
+                                    ${logoImg('w-10 h-10 shrink-0')}
+                                    <div class="min-w-0">
+                                        <p class="text-[11px] text-emerald-200 leading-none mb-1">Bank Sampah Teratai</p>
+                                        <h1 class="font-bold text-base leading-none truncate">Halo, ${esc(currentUser.name)}</h1>
+                                    </div>
                                 </div>
+                                <nav class="hidden lg:flex items-center gap-1">
+                                    ${tabs.map(t => `
+                                        <button onclick="activeNasabahTab='${t[0]}'; render(); window.scrollTo(0,0);" class="px-4 py-2 rounded-xl text-sm font-semibold flex items-center space-x-2 transition ${activeNasabahTab === t[0] ? 'bg-white/20 text-white' : 'text-emerald-100 hover:bg-white/10'}">
+                                            <i class="fa-solid ${t[1]}"></i><span>${t[2]}</span>
+                                        </button>
+                                    `).join('')}
+                                </nav>
+                                <button onclick="logout()" aria-label="Keluar" class="w-10 h-10 rounded-2xl bg-white/15 active:bg-white/30 hover:bg-white/25 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-right-from-bracket"></i>
+                                </button>
                             </div>
-                            <button onclick="logout()" aria-label="Keluar" class="w-10 h-10 rounded-2xl bg-white/15 active:bg-white/30 flex items-center justify-center shrink-0">
-                                <i class="fa-solid fa-right-from-bracket"></i>
-                            </button>
                         </header>
 
-                        <main class="p-4 space-y-4" style="padding-bottom:6.5rem">
+                        <main class="p-4 pb-28 md:p-6 md:pb-28 lg:p-8 lg:pb-10 space-y-4 lg:max-w-7xl lg:mx-auto lg:w-full">
                             ${activeNasabahTab === 'beranda' ? renderNasabahBeranda(setoranList, prices, totalBerat) : ''}
                             ${activeNasabahTab === 'pilah' ? renderNasabahPilah(prices) : ''}
                             ${activeNasabahTab === 'riwayat' ? renderNasabahRiwayat(setoranList) : ''}
                             ${activeNasabahTab === 'karya' ? renderNasabahKarya() : ''}
+                            ${activeNasabahTab === 'profil' ? renderNasabahProfil(setoranList, totalBerat) : ''}
                         </main>
                     </div>
 
-                    <nav class="fixed bottom-0 inset-x-0 z-40">
-                        <div class="max-w-md mx-auto bg-white border-t border-slate-200 grid grid-cols-4 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]" style="padding-bottom:env(safe-area-inset-bottom)">
+                    <nav class="fixed bottom-0 inset-x-0 z-40 lg:hidden">
+                        <div class="max-w-md md:max-w-2xl lg:max-w-4xl mx-auto bg-white border-t border-slate-200 grid grid-cols-5 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]" style="padding-bottom:env(safe-area-inset-bottom)">
                             ${tabs.map(t => `
                                 <button onclick="activeNasabahTab='${t[0]}'; render(); window.scrollTo(0,0);" class="relative flex flex-col items-center justify-center py-2.5 text-[11px] font-semibold ${activeNasabahTab === t[0] ? 'text-emerald-700' : 'text-slate-400'}">
                                     ${activeNasabahTab === t[0] ? '<span class="absolute top-0 w-8 h-1 bg-emerald-600 rounded-b-full"></span>' : ''}
@@ -498,6 +555,8 @@
             }
 
             return `
+                <div class="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 lg:items-start">
+                <div class="space-y-4 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24">
                 <div class="bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-700 text-white rounded-3xl p-5 shadow-lg relative overflow-hidden">
                     <div class="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full pointer-events-none"></div>
                     <p class="text-emerald-100 text-[11px] font-semibold uppercase tracking-wider">Total Saldo Tabungan</p>
@@ -505,7 +564,7 @@
                     <div class="mt-3 inline-flex items-center space-x-2 bg-white/15 px-3 py-1.5 rounded-full text-xs font-semibold">
                         <i class="fa-solid fa-weight-hanging"></i><span>${kg(totalBerat)} kg sampah terkumpul</span>
                     </div>
-                    <div class="mt-4 -mx-1 flex gap-2 overflow-x-auto no-scrollbar px-1">
+                    <div class="mt-4 -mx-1 flex gap-2 overflow-x-auto no-scrollbar px-1 lg:flex-wrap lg:overflow-visible">
                         ${Object.keys(categorySummary).map(cat => `
                             <div class="shrink-0 bg-black/10 px-3 py-2 rounded-xl border border-white/10 text-center min-w-[84px]">
                                 <p class="text-[10px] text-emerald-200 uppercase">${cat}</p>
@@ -516,6 +575,8 @@
                 </div>
 
                 ${anniversaryHtml}
+                </div>
+                <div class="space-y-4 lg:col-span-7 xl:col-span-8">
 
                 <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
                     <h3 class="font-bold text-slate-800 text-base mb-3 flex items-center space-x-2"><i class="fa-solid fa-chart-column text-emerald-600"></i><span>Rekap Per Bulan</span></h3>
@@ -526,9 +587,9 @@
                         <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p class="text-[10px] text-slate-500 font-semibold uppercase">Sampah ${selectedYear}</p><p class="text-lg font-extrabold text-emerald-700">${kg(yearBerat)} kg</p></div>
                         <div class="bg-emerald-50 p-3 rounded-2xl border border-emerald-100"><p class="text-[10px] text-slate-500 font-semibold uppercase">Penghasilan ${selectedYear}</p><p class="text-lg font-extrabold text-emerald-700">${rpf(yearRupiah)}</p></div>
                     </div>
-                    <div class="divide-y divide-slate-100">
+                    <div class="lg:grid lg:grid-cols-2 lg:gap-x-8">
                         ${monthlyData.map(m => `
-                            <div class="flex items-center justify-between py-2.5 ${m.kg === 0 ? 'opacity-40' : ''}">
+                            <div class="flex items-center justify-between py-2.5 border-b border-slate-100 ${m.kg === 0 ? 'opacity-40' : ''}">
                                 <span class="text-sm font-semibold text-slate-800">${m.nama}</span>
                                 <span class="text-right"><span class="block text-xs text-slate-500">${kg(m.kg)} kg</span><span class="block text-sm font-bold text-emerald-700">${rpf(m.rp)}</span></span>
                             </div>
@@ -538,7 +599,7 @@
 
                 <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
                     <h3 class="font-bold text-slate-800 text-base mb-3 flex items-center space-x-2"><i class="fa-solid fa-tags text-emerald-600"></i><span>Patokan Harga Sampah</span></h3>
-                    <div class="grid grid-cols-2 gap-2">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                         ${Object.keys(prices).map(cat => `
                             <div class="bg-emerald-50/60 p-3 rounded-2xl border border-emerald-100">
                                 <p class="text-[11px] text-slate-500 font-semibold">${cat}</p>
@@ -547,6 +608,8 @@
                         `).join('')}
                     </div>
                 </div>
+                </div>
+            </div>
             `;
         }
 
@@ -565,7 +628,7 @@
                     <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2"><i class="fa-solid fa-book-open text-emerald-600"></i><span>Panduan Memilah Sampah</span></h3>
                     <p class="text-slate-500 text-xs mt-1">Sampah yang dipilah dengan benar dihargai maksimal saat ditimbang.</p>
                 </div>
-                <div class="space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     ${panduan.map(p => `
                         <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start space-x-3">
                             <div class="w-11 h-11 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center shrink-0"><i class="fa-solid ${p.icon}"></i></div>
@@ -589,7 +652,7 @@
                         <p class="text-sm">Belum ada riwayat setoran sampah.</p>
                     </div>
                 ` : `
-                    <div class="space-y-3">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         ${sorted.map(s => {
                             const done = s.status === 'Selesai';
                             return `
@@ -621,7 +684,7 @@
                     <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2"><i class="fa-solid fa-wand-magic-sparkles text-emerald-600"></i><span>Karya Daur Ulang</span></h3>
                     <p class="text-slate-500 text-xs mt-1">Inspirasi produk bernilai jual dari sampah terpilah.</p>
                 </div>
-                <div class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     ${dbKarya.length === 0 ? '<div class="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400 text-sm">Belum ada karya daur ulang.</div>' : ''}
                     ${dbKarya.map(k => `
                         <div class="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
@@ -635,6 +698,232 @@
                     `).join('')}
                 </div>
             `;
+        }
+
+        function formatTanggal(str) {
+            if (!str) return '-';
+            const p = String(str).split('-');
+            if (p.length !== 3 || !BULAN[parseInt(p[1], 10) - 1]) return str;
+            return parseInt(p[2], 10) + ' ' + BULAN[parseInt(p[1], 10) - 1] + ' ' + p[0];
+        }
+
+        function initials(name) {
+            const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+            const first = (parts[0] || '?')[0];
+            const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+            return (first + last).toUpperCase();
+        }
+
+        function openModal(html) {
+            const c = document.getElementById('modal-container');
+            c.classList.remove('hidden');
+            c.innerHTML = html;
+        }
+
+        function infoRow(label, value) {
+            return `<div class="flex items-start justify-between gap-4 py-3">
+                <span class="text-xs text-slate-500 shrink-0">${label}</span>
+                <span class="text-sm font-semibold text-slate-800 text-right break-words min-w-0">${value}</span>
+            </div>`;
+        }
+
+        function settingRow(onclick, iconCls, boxCls, label, textCls) {
+            return `<button onclick="${onclick}" class="w-full flex items-center justify-between py-3.5 text-left">
+                <span class="flex items-center space-x-3">
+                    <span class="w-9 h-9 rounded-xl ${boxCls} flex items-center justify-center"><i class="fa-solid ${iconCls}"></i></span>
+                    <span class="text-sm font-semibold ${textCls || 'text-slate-800'}">${label}</span>
+                </span>
+                <i class="fa-solid fa-chevron-right text-slate-300 text-xs"></i>
+            </button>`;
+        }
+
+        function renderNasabahProfil(setoranList, totalBerat) {
+            const u = currentUser;
+            const jumlahSetoran = setoranList.filter(s => s.status === 'Selesai').length;
+            return `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 lg:max-w-4xl lg:mx-auto">
+                    <div class="md:col-span-2 bg-white rounded-3xl p-5 shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                        <div class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center text-2xl font-extrabold shadow-md">${esc(initials(u.name))}</div>
+                        <h2 class="mt-3 text-lg font-extrabold text-slate-800 break-words max-w-full">${esc(u.name)}</h2>
+                        <p class="text-xs text-slate-500">${esc(u.phone || '')}</p>
+                        <span class="mt-2 px-3 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">${esc(u.status || 'Aktif')}</span>
+                    </div>
+
+                    <div class="md:col-span-2 grid grid-cols-3 gap-2">
+                        <div class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm text-center min-w-0">
+                            <p class="text-[10px] text-slate-500 font-semibold uppercase">Saldo</p>
+                            <p class="text-sm font-extrabold text-emerald-700 break-words">${rpf(u.saldo)}</p>
+                        </div>
+                        <div class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm text-center min-w-0">
+                            <p class="text-[10px] text-slate-500 font-semibold uppercase">Setoran</p>
+                            <p class="text-sm font-extrabold text-emerald-700">${jumlahSetoran}x</p>
+                        </div>
+                        <div class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm text-center min-w-0">
+                            <p class="text-[10px] text-slate-500 font-semibold uppercase">Sampah</p>
+                            <p class="text-sm font-extrabold text-emerald-700 break-words">${kg(totalBerat)} kg</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-3xl px-4 py-2 shadow-sm border border-slate-100">
+                        <h3 class="font-bold text-slate-800 text-sm pt-2 pb-1">Data Diri</h3>
+                        <div class="divide-y divide-slate-100">
+                            ${infoRow('Nama Lengkap', esc(u.name))}
+                            ${infoRow('Nomor HP / WhatsApp', esc(u.phone || '-'))}
+                            ${infoRow('Alamat', u.address ? esc(u.address) : '<span class="text-slate-400 font-normal">Belum diisi</span>')}
+                            ${infoRow('Bergabung Sejak', formatTanggal(u.joinedDate))}
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-3xl px-4 py-2 shadow-sm border border-slate-100">
+                        <h3 class="font-bold text-slate-800 text-sm pt-2 pb-1">Pengaturan Akun</h3>
+                        <div class="divide-y divide-slate-100">
+                            ${settingRow('openEditProfilModal()', 'fa-pen', 'bg-emerald-100 text-emerald-700', 'Edit Profil')}
+                            ${settingRow('openGantiPinModal()', 'fa-key', 'bg-amber-100 text-amber-700', 'Ganti PIN / Kata Sandi')}
+                            ${settingRow('logout()', 'fa-right-from-bracket', 'bg-rose-100 text-rose-600', 'Keluar', 'text-rose-600')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function modalHeader(title) {
+            return `<div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-800 text-base">${title}</h3>
+                <button type="button" onclick="closeModal()" aria-label="Tutup" class="w-8 h-8 text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>`;
+        }
+
+        function openEditProfilModal() {
+            const u = currentUser;
+            openModal(`
+                <form onsubmit="handleEditProfil(event)" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    ${modalHeader('Edit Profil')}
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nama Lengkap</label>
+                        <input type="text" id="prof-name" required maxlength="60" value="${esc(u.name || '')}" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nomor HP / WhatsApp</label>
+                        <input type="text" value="${esc(u.phone || '')}" disabled class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 text-sm">
+                        <p class="text-[11px] text-slate-400 mt-1">Nomor ini dipakai untuk masuk, jadi tidak bisa diubah di sini. Hubungi pengelola bila perlu ganti nomor.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Alamat</label>
+                        <input type="text" id="prof-address" maxlength="120" value="${esc(u.address || '')}" placeholder="Contoh: Blok C5 No. 12" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="submit" id="btn-prof-save" class="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm">Simpan</button>
+                    </div>
+                </form>
+            `);
+        }
+
+        async function handleEditProfil(event) {
+            event.preventDefault();
+            const name = document.getElementById('prof-name').value.trim();
+            const address = document.getElementById('prof-address').value.trim();
+            if (!name) { showToast('Nama tidak boleh kosong!', 'error'); return; }
+
+            const btn = document.getElementById('btn-prof-save');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            try {
+                const nameChanged = name !== currentUser.name;
+                await db.collection('users').doc(currentUser.id).update({ name, address });
+
+                // Samakan nama di riwayat setoran supaya admin melihat nama terbaru
+                if (nameChanged) {
+                    try {
+                        const snap = await db.collection('setoran').where('userId', '==', currentUser.id).get();
+                        const batch = db.batch();
+                        snap.forEach(d => batch.update(d.ref, { userName: name }));
+                        await batch.commit();
+                    } catch (e) { console.error('Sinkron nama setoran gagal:', e); }
+                }
+
+                currentUser.name = name;
+                currentUser.address = address;
+                closeModal();
+                showToast('Profil berhasil diperbarui!');
+                render();
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menyimpan profil: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Simpan';
+            }
+        }
+
+        function pinField(id, label, placeholder, autocomplete) {
+            return `<div>
+                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">${label}</label>
+                <div class="relative">
+                    <input type="password" id="${id}" required minlength="6" autocomplete="${autocomplete}" placeholder="${placeholder}" class="w-full pl-4 pr-11 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                    <button type="button" onclick="togglePin('${id}', this)" aria-label="Tampilkan atau sembunyikan PIN" class="absolute right-0 top-0 h-full w-11 text-slate-400 hover:text-slate-600"><i class="fa-regular fa-eye"></i></button>
+                </div>
+            </div>`;
+        }
+
+        function togglePin(id, btn) {
+            const el = document.getElementById(id);
+            const show = el.type === 'password';
+            el.type = show ? 'text' : 'password';
+            btn.innerHTML = `<i class="fa-regular ${show ? 'fa-eye-slash' : 'fa-eye'}"></i>`;
+        }
+
+        function openGantiPinModal() {
+            openModal(`
+                <form onsubmit="handleGantiPin(event)" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    ${modalHeader('Ganti PIN / Kata Sandi')}
+                    ${pinField('pin-old', 'PIN Lama', 'Masukkan PIN lama', 'current-password')}
+                    ${pinField('pin-new', 'PIN Baru (min. 6 karakter)', 'Masukkan PIN baru', 'new-password')}
+                    ${pinField('pin-confirm', 'Ulangi PIN Baru', 'Ketik ulang PIN baru', 'new-password')}
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="submit" id="btn-pin-save" class="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm">Ganti PIN</button>
+                    </div>
+                </form>
+            `);
+        }
+
+        async function handleGantiPin(event) {
+            event.preventDefault();
+            const oldPin = document.getElementById('pin-old').value;
+            const newPin = document.getElementById('pin-new').value;
+            const confirmPin = document.getElementById('pin-confirm').value;
+
+            if (newPin.length < 6) { showToast('PIN baru minimal 6 karakter!', 'error'); return; }
+            if (newPin !== confirmPin) { showToast('Ulangi PIN baru belum sama!', 'error'); return; }
+            if (newPin === oldPin) { showToast('PIN baru harus berbeda dari PIN lama!', 'error'); return; }
+
+            const fbUser = auth.currentUser;
+            if (!fbUser) { showToast('Sesi berakhir. Silakan masuk lagi.', 'error'); return; }
+
+            const btn = document.getElementById('btn-pin-save');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            try {
+                const cred = firebase.auth.EmailAuthProvider.credential(fbUser.email, oldPin);
+                await fbUser.reauthenticateWithCredential(cred);
+                await fbUser.updatePassword(newPin);
+                closeModal();
+                showToast('PIN berhasil diganti. Pakai PIN baru saat masuk berikutnya.');
+            } catch (err) {
+                console.error(err);
+                const msg = {
+                    'auth/wrong-password': 'PIN lama salah!',
+                    'auth/invalid-credential': 'PIN lama salah!',
+                    'auth/weak-password': 'PIN baru terlalu lemah, minimal 6 karakter!',
+                    'auth/too-many-requests': 'Terlalu banyak percobaan. Coba lagi beberapa menit lagi.',
+                    'auth/requires-recent-login': 'Sesi sudah lama. Keluar lalu masuk lagi, kemudian coba ganti PIN.'
+                }[err.code] || ('Gagal ganti PIN: ' + err.message);
+                showToast(msg, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Ganti PIN';
+            }
         }
 
         function renderAdminPortal() {
@@ -651,7 +940,7 @@
                             <div class="flex items-center space-x-3">
                                 ${logoImg('w-10 h-10 shrink-0')}
                                 <div>
-                                    <h1 class="font-bold text-slate-800 text-base leading-tight">Panel Pengelola / Admin</h1>
+                                    <h1 class="font-bold text-slate-800 text-sm sm:text-base leading-tight">Panel Pengelola / Admin</h1>
                                     <p class="text-xs text-slate-500">Bank Sampah Teratai</p>
                                 </div>
                             </div>
@@ -665,16 +954,16 @@
                         <!-- Admin Navigation Tabs -->
                         <div class="bg-teal-900 text-white shadow-inner">
                             <div class="max-w-7xl mx-auto px-4 flex space-x-1 overflow-x-auto custom-scrollbar">
-                                <button onclick="activeAdminTab='dashboard'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'dashboard' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                <button onclick="activeAdminTab='dashboard'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'dashboard' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
                                     <i class="fa-solid fa-chart-pie"></i><span>Dashboard</span>
                                 </button>
-                                <button onclick="activeAdminTab='setoran'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'setoran' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                <button onclick="activeAdminTab='setoran'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'setoran' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
                                     <i class="fa-solid fa-scale-balanced"></i><span>Setoran</span>
                                 </button>
-                                <button onclick="activeAdminTab='nasabah'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'nasabah' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                <button onclick="activeAdminTab='nasabah'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'nasabah' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
                                     <i class="fa-solid fa-users"></i><span>Data Nasabah (${usersList.length})</span>
                                 </button>
-                                <button onclick="activeAdminTab='harga'; render();" class="px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'harga' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                <button onclick="activeAdminTab='harga'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'harga' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
                                     <i class="fa-solid fa-tags"></i><span>Harga Sampah</span>
                                 </button>
                             </div>
@@ -706,7 +995,7 @@
                     <!-- Dashboard Cards -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
-                            <div class="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                            <div class="shrink-0 w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center font-bold text-xl">
                                 <i class="fa-solid fa-users"></i>
                             </div>
                             <div>
@@ -715,7 +1004,7 @@
                             </div>
                         </div>
                         <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
-                            <div class="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                            <div class="shrink-0 w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center font-bold text-xl">
                                 <i class="fa-solid fa-clipboard-list"></i>
                             </div>
                             <div>
@@ -724,7 +1013,7 @@
                             </div>
                         </div>
                         <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
-                            <div class="w-12 h-12 bg-teal-100 text-teal-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                            <div class="shrink-0 w-12 h-12 bg-teal-100 text-teal-700 rounded-2xl flex items-center justify-center font-bold text-xl">
                                 <i class="fa-solid fa-wallet"></i>
                             </div>
                             <div>
@@ -734,7 +1023,7 @@
                             </div>
                         </div>
                         <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex items-center space-x-4">
-                            <div class="w-12 h-12 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center font-bold text-xl">
+                            <div class="shrink-0 w-12 h-12 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center font-bold text-xl">
                                 <i class="fa-solid fa-scale-balanced"></i>
                             </div>
                             <div>
@@ -762,7 +1051,7 @@
                     </div>
 
                     <!-- Quick Action Banner -->
-                    <div class="bg-gradient-to-r from-teal-800 to-slate-800 text-white rounded-3xl p-6 shadow-md flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div class="bg-gradient-to-r from-teal-800 to-slate-800 text-white rounded-3xl p-4 sm:p-6 shadow-md flex flex-col md:flex-row items-center justify-between gap-4">
                         <div class="space-y-1">
                             <h4 class="font-bold text-lg"><i class="fa-solid fa-bolt text-amber-400 mr-2"></i>Pendaftaran Nasabah Berjalan Otomatis</h4>
                             <p class="text-xs text-teal-200">Setiap nasabah yang melakukan pendaftaran mandiri dari web/HP akan langsung tercatat secara otomatis di tabel Data Nasabah tanpa perlu input manual.</p>
@@ -779,13 +1068,13 @@
             const nasabahOptions = dbUsers.filter(u => u.role === 'nasabah');
             const rows = [...setoranList].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
             return `
-                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 mb-6">
+                <div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 mb-6">
                     <h3 class="font-bold text-slate-800 text-lg mb-1 flex items-center space-x-2">
                         <i class="fa-solid fa-circle-plus text-teal-700"></i>
                         <span>Input Setoran Sampah Nasabah</span>
                     </h3>
                     <p class="text-xs text-slate-500 mb-4">Nasabah datang langsung pada jadwal penimbangan. Catat hasil timbangan di sini, saldo nasabah otomatis bertambah sesuai harga per kategori.</p>
-                    <form onsubmit="handleAdminInputSetoran(event)" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <form onsubmit="handleAdminInputSetoran(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nasabah</label>
                             <select id="admin-setor-user" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
@@ -814,7 +1103,7 @@
                     </form>
                 </div>
 
-                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 space-y-4">
+                <div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-4">
                     <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
                         <i class="fa-solid fa-scale-balanced text-teal-700"></i>
                         <span>Riwayat Seluruh Setoran</span>
@@ -822,7 +1111,25 @@
                     ${rows.length === 0 ? `
                         <div class="text-center py-12 text-slate-400"><i class="fa-solid fa-box-open text-4xl mb-2 opacity-50"></i><p>Belum ada data setoran.</p></div>
                     ` : `
-                        <div class="overflow-x-auto">
+                        <div class="md:hidden space-y-2">
+                            ${rows.map(x => `
+                                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <p class="font-bold text-slate-800 text-sm truncate">${esc(x.userName)}</p>
+                                            <p class="text-[11px] text-slate-400">${x.date}</p>
+                                        </div>
+                                        <span class="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg shrink-0">Rp ${x.totalValue.toLocaleString('id-ID')}</span>
+                                    </div>
+                                    <div class="mt-2 flex items-center justify-between gap-3">
+                                        <p class="text-xs text-slate-600">${x.category} &bull; ${berat(x.actWeight)}</p>
+                                        <div class="flex items-center gap-1.5 shrink-0"><button onclick="openEditSetoranModal('${x.id}')" aria-label="Edit setoran" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
+                                        <button onclick="openHapusSetoranModal('${x.id}')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-trash mr-1"></i>Hapus</button></div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="hidden md:block overflow-x-auto">
                             <table class="w-full text-left text-sm text-slate-600">
                                 <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
                                     <tr>
@@ -830,7 +1137,8 @@
                                         <th class="p-3.5">Tanggal</th>
                                         <th class="p-3.5">Kategori</th>
                                         <th class="p-3.5">Berat</th>
-                                        <th class="p-3.5 rounded-r-xl">Nilai</th>
+                                        <th class="p-3.5">Nilai</th>
+                                        <th class="p-3.5 rounded-r-xl text-center">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
@@ -841,6 +1149,10 @@
                                             <td class="p-3.5 font-semibold text-slate-800">${x.category}</td>
                                             <td class="p-3.5 font-bold text-slate-800">${berat(x.actWeight)}</td>
                                             <td class="p-3.5"><span class="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">Rp ${x.totalValue.toLocaleString('id-ID')}</span></td>
+                                            <td class="p-3.5 text-center">
+                                                <div class="flex items-center justify-center gap-1.5"><button onclick="openEditSetoranModal('${x.id}')" aria-label="Edit setoran" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
+                                                    <button onclick="openHapusSetoranModal('${x.id}')" aria-label="Hapus setoran" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-trash mr-1"></i>Hapus</button></div>
+                                            </td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -880,7 +1192,8 @@
                     actWeight,
                     status: 'Selesai',
                     date,
-                    totalValue
+                    totalValue,
+                    pricePerKg: dbPrices[category] || 0
                 });
                 await db.collection('users').doc(userId).update({
                     saldo: firebase.firestore.FieldValue.increment(totalValue)
@@ -894,6 +1207,163 @@
             }
         }
 
+        function setoranUnitPrice(x) {
+            // Harga per kg saat setoran dicatat; data lama dihitung mundur dari nilai tersimpan
+            if (x.pricePerKg) return x.pricePerKg;
+            const cur = dbPrices[x.category];
+            if (cur && Math.round((x.actWeight || 0) * cur) === x.totalValue) return cur;
+            return x.actWeight ? x.totalValue / x.actWeight : (cur || 0);
+        }
+
+        function parseBerat(v) {
+            return Math.round(parseFloat(String(v).trim().replace(',', '.')) * 1000) / 1000;
+        }
+
+        function calcEditSetoran(x) {
+            const cat = document.getElementById('edit-setor-category').value;
+            const w = parseBerat(document.getElementById('edit-setor-weight').value);
+            const unit = cat === x.category ? setoranUnitPrice(x) : (dbPrices[cat] || 0);
+            const total = w > 0 ? Math.round(w * unit) : 0;
+            return { cat, w, unit, total };
+        }
+
+        function updateEditPreview(id) {
+            const x = dbSetoran.find(r => r.id === id);
+            const el = document.getElementById('edit-preview');
+            if (!x || !el) return;
+            const r = calcEditSetoran(x);
+            if (!(r.w > 0)) { el.innerHTML = '<span class="text-rose-600">Masukkan berat yang valid.</span>'; return; }
+            const diff = x.status === 'Selesai' ? r.total - (x.totalValue || 0) : 0;
+            const saldoTxt = diff === 0 ? 'Saldo nasabah tidak berubah.'
+                : 'Saldo nasabah ' + (diff > 0 ? 'bertambah' : 'berkurang') + ' Rp ' + Math.abs(diff).toLocaleString('id-ID') + '.';
+            el.innerHTML = 'Nilai baru <b class="text-emerald-700">Rp ' + r.total.toLocaleString('id-ID') + '</b> (Rp ' + Math.round(r.unit).toLocaleString('id-ID') + '/kg). ' + saldoTxt;
+        }
+
+        function openEditSetoranModal(id) {
+            const x = dbSetoran.find(r => r.id === id);
+            if (!x) { showToast('Data setoran tidak ditemukan!', 'error'); return; }
+            const cats = Object.keys(dbPrices);
+            if (!cats.includes(x.category)) cats.unshift(x.category);
+            openModal(`
+                <form onsubmit="handleEditSetoran(event, '${x.id}')" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    ${modalHeader('Edit Setoran')}
+                    <div class="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200">
+                        <p class="text-[11px] text-slate-500 uppercase font-bold">Nasabah</p>
+                        <p class="text-sm font-bold text-slate-800">${esc(x.userName || '-')}</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tanggal Timbang</label>
+                        <input type="date" id="edit-setor-date" required value="${esc(x.date || todayStr())}" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Kategori Sampah</label>
+                        <select id="edit-setor-category" required onchange="updateEditPreview('${x.id}')" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
+                            ${cats.map(c => `<option value="${esc(c)}" ${c === x.category ? 'selected' : ''}>${esc(c)}${dbPrices[c] ? ' (Rp ' + dbPrices[c].toLocaleString('id-ID') + '/kg)' : ''}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Berat (kg)</label>
+                        <input type="text" inputmode="decimal" autocomplete="off" id="edit-setor-weight" required value="${String(x.actWeight).replace('.', ',')}" oninput="updateEditPreview('${x.id}')" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" placeholder="Contoh: 3,5 atau 0,25">
+                    </div>
+                    <p id="edit-preview" class="text-xs text-slate-600 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5"></p>
+                    <p class="text-[11px] text-slate-400">Harga per kg mengikuti harga saat setoran dicatat. Jika kategori diganti, dipakai harga sekarang. Untuk salah nasabah, hapus lalu input ulang.</p>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="submit" id="btn-edit-setoran" class="flex-1 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm">Simpan Perubahan</button>
+                    </div>
+                </form>
+            `);
+            updateEditPreview(id);
+        }
+
+        async function handleEditSetoran(event, id) {
+            event.preventDefault();
+            const x = dbSetoran.find(r => r.id === id);
+            if (!x) { closeModal(); return; }
+            const date = document.getElementById('edit-setor-date').value || x.date;
+            const r = calcEditSetoran(x);
+            if (!(r.w > 0)) { showToast('Berat harus lebih dari 0!', 'error'); return; }
+
+            const btn = document.getElementById('btn-edit-setoran');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            try {
+                // Ubah setoran dan sesuaikan saldo (selisih nilai) dalam satu proses
+                const diff = x.status === 'Selesai' ? r.total - (x.totalValue || 0) : 0;
+                const batch = db.batch();
+                batch.update(db.collection('setoran').doc(id), {
+                    category: r.cat, actWeight: r.w, date, totalValue: r.total, pricePerKg: r.unit
+                });
+                if (diff !== 0 && dbUsers.some(u => u.id === x.userId)) {
+                    batch.update(db.collection('users').doc(x.userId), {
+                        saldo: firebase.firestore.FieldValue.increment(diff)
+                    });
+                }
+                await batch.commit();
+                closeModal();
+                showToast(diff === 0 ? 'Setoran diperbarui.' : 'Setoran diperbarui. Saldo ' + (x.userName || 'nasabah') + ' ' + (diff > 0 ? 'bertambah' : 'berkurang') + ' Rp ' + Math.abs(diff).toLocaleString('id-ID'));
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menyimpan perubahan: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Simpan Perubahan';
+            }
+        }
+
+        function openHapusSetoranModal(id) {
+            const x = dbSetoran.find(r => r.id === id);
+            if (!x) { showToast('Data setoran tidak ditemukan!', 'error'); return; }
+            const row = (label, value) => `<div class="flex justify-between gap-4"><span class="text-slate-500">${label}</span><span class="font-semibold text-slate-800 text-right">${value}</span></div>`;
+            openModal(`
+                <div class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-11 h-11 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center shrink-0"><i class="fa-solid fa-trash"></i></div>
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base">Hapus setoran ini?</h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Setoran dihapus permanen dan saldo nasabah dikurangi sebesar nilai setoran.</p>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-sm space-y-1.5">
+                        ${row('Nasabah', esc(x.userName || '-'))}
+                        ${row('Tanggal', esc(x.date || '-'))}
+                        ${row('Kategori', esc(x.category || '-'))}
+                        ${row('Berat', berat(x.actWeight))}
+                        ${row('Nilai', 'Rp ' + (x.totalValue || 0).toLocaleString('id-ID'))}
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="button" id="btn-hapus-setoran" onclick="handleHapusSetoran('${x.id}')" class="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">Ya, Hapus</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        async function handleHapusSetoran(id) {
+            const x = dbSetoran.find(r => r.id === id);
+            if (!x) { closeModal(); return; }
+            const btn = document.getElementById('btn-hapus-setoran');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
+
+            try {
+                // Hapus setoran dan kurangi saldo dalam satu proses, supaya tidak ada yang setengah jalan
+                const batch = db.batch();
+                batch.delete(db.collection('setoran').doc(id));
+                if (x.status === 'Selesai' && x.totalValue && dbUsers.some(u => u.id === x.userId)) {
+                    batch.update(db.collection('users').doc(x.userId), {
+                        saldo: firebase.firestore.FieldValue.increment(-x.totalValue)
+                    });
+                }
+                await batch.commit();
+                closeModal();
+                showToast('Setoran dihapus. Saldo ' + (x.userName || 'nasabah') + ' dikurangi Rp ' + (x.totalValue || 0).toLocaleString('id-ID'));
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menghapus setoran: ' + err.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Ya, Hapus'; }
+            }
+        }
+
         function renderAdminNasabah(usersList, setoranList) {
             const filteredUsers = usersList.filter(u => 
                 (u.name || '').toLowerCase().includes(nasabahSearchQuery.toLowerCase()) || 
@@ -901,7 +1371,7 @@
             );
 
             return `
-                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 space-y-6">
+                <div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-6">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
                             <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
@@ -919,7 +1389,29 @@
                     </div>
 
                     <!-- Nasabah Table -->
-                    <div class="overflow-x-auto">
+                    <div class="md:hidden space-y-2">
+                        ${filteredUsers.length === 0 ? '<p class="p-6 text-center text-slate-400 text-sm">Belum ada data nasabah terdaftar.</p>' : filteredUsers.map(u => {
+                            const totalKg = setoranList.filter(s => s.userId === u.id && s.status === 'Selesai').reduce((acc, s) => acc + s.actWeight, 0);
+                            return `
+                                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <p class="font-bold text-slate-800 text-sm truncate">${esc(u.name)}</p>
+                                            <p class="font-mono text-xs text-slate-500">${esc(u.phone)}</p>
+                                        </div>
+                                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 shrink-0">${u.status || 'Aktif'}</span>
+                                    </div>
+                                    <div class="mt-3 flex items-end justify-between gap-3">
+                                        <div>
+                                            <p class="font-extrabold text-emerald-700 text-sm">Rp ${(u.saldo || 0).toLocaleString('id-ID')}</p>
+                                            <p class="text-[11px] text-slate-500">${kg(totalKg)} kg &bull; sejak ${u.joinedDate || '-'}</p>
+                                        </div>
+                                        <button onclick="openDetailNasabahModal('${u.id}')" class="bg-white hover:bg-teal-50 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs border border-slate-200 transition shrink-0">Detail</button>
+                                    </div>
+                                </div>`;
+                        }).join('')}
+                    </div>
+                    <div class="hidden md:block overflow-x-auto">
                         <table class="w-full text-left text-sm text-slate-600">
                             <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
                                 <tr>
@@ -978,11 +1470,12 @@
             const container = document.getElementById('modal-container');
             container.classList.remove('hidden');
             container.innerHTML = `
-                <div class="bg-white max-w-lg w-full p-6 rounded-3xl shadow-2xl space-y-4">
+                <div class="modal-card bg-white max-w-lg w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
                     <div class="flex items-center justify-between border-b border-slate-100 pb-3">
                         <div>
                             <h3 class="font-bold text-slate-800 text-base">${esc(user.name)}</h3>
                             <p class="text-xs text-slate-500">HP: ${esc(user.phone)} • Bergabung: ${user.joinedDate || '-'}</p>
+                            ${user.address ? `<p class="text-xs text-slate-500 mt-0.5">Alamat: ${esc(user.address)}</p>` : ''}
                         </div>
                         <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
                     </div>
@@ -1022,7 +1515,7 @@
 
         function renderAdminHarga(prices) {
             return `
-                <div class="bg-white rounded-3xl p-6 shadow-md border border-slate-200 space-y-6">
+                <div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-6">
                     <div>
                         <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
                             <i class="fa-solid fa-tags text-teal-700"></i>
@@ -1079,7 +1572,7 @@
             } else {
                 currentUser = null;
             }
-            startRealtimeListeners();
+            if (currentUser) startRealtimeListeners(currentUser); else stopRealtimeListeners();
             render();
         });
         // Render langsung halaman depan saat dimuat

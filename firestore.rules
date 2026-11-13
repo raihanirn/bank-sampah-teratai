@@ -3,17 +3,72 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 12, 12);
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Admin = dokumen users/{uid} dengan role == 'admin'
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Data nasabah
+    match /users/{userId} {
+      // Nasabah hanya bisa membaca profilnya sendiri; admin membaca semua
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Pendaftaran mandiri: hanya role nasabah dengan saldo 0 (tidak bisa mendaftar sebagai admin)
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['phone', 'name', 'role', 'saldo', 'joinedDate', 'status', 'address'])
+        && request.resource.data.role == 'nasabah'
+        && request.resource.data.saldo == 0
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 60;
+
+      // Nasabah hanya boleh mengubah nama dan alamat (saldo, role, status tidak bisa disentuh); admin bebas
+      allow update: if isAdmin()
+        || (isOwner(userId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'address'])
+            && request.resource.data.name is string
+            && request.resource.data.name.size() > 0
+            && request.resource.data.name.size() <= 60
+            && (!('address' in request.resource.data)
+                || (request.resource.data.address is string && request.resource.data.address.size() <= 120)));
+
+      allow delete: if isAdmin();
+    }
+
+    // Riwayat setoran
+    match /setoran/{setoranId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+
+      allow create, delete: if isAdmin();
+
+      // Nasabah hanya boleh menyamakan userName (saat ganti nama di profil)
+      allow update: if isAdmin()
+        || (signedIn()
+            && resource.data.userId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userName']));
+    }
+
+    // Harga sampah: semua yang login boleh baca, hanya admin yang boleh ubah
+    match /prices/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Karya daur ulang
+    match /karya/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
   }
 }
