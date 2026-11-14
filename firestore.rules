@@ -7,6 +7,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Akun nonaktif tidak bisa membaca/mengubah data apa pun selain profilnya sendiri
+    function isActive() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', 'Aktif') != 'Nonaktif';
+    }
+
     function isOwner(uid) {
       return signedIn() && request.auth.uid == uid;
     }
@@ -24,17 +29,19 @@ service cloud.firestore {
       allow read: if isOwner(userId) || isAdmin();
 
       // Pendaftaran mandiri: hanya role nasabah dengan saldo 0 (tidak bisa mendaftar sebagai admin)
-      allow create: if isOwner(userId)
-        && request.resource.data.keys().hasOnly(['phone', 'name', 'role', 'saldo', 'joinedDate', 'status', 'address'])
+      // Admin boleh menambah nasabah; pendaftaran mandiri dibatasi di bawah
+      allow create: if isAdmin()
+        || (isOwner(userId)
+        && request.resource.data.keys().hasOnly(['phone', 'name', 'role', 'saldo', 'joinedDate', 'status', 'address', 'email'])
         && request.resource.data.role == 'nasabah'
         && request.resource.data.saldo == 0
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 60;
+        && request.resource.data.name.size() <= 60);
 
       // Nasabah hanya boleh mengubah nama dan alamat (saldo, role, status tidak bisa disentuh); admin bebas
       allow update: if isAdmin()
-        || (isOwner(userId)
+        || (isOwner(userId) && isActive()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'address'])
             && request.resource.data.name is string
             && request.resource.data.name.size() > 0
@@ -48,15 +55,36 @@ service cloud.firestore {
     // Riwayat setoran
     match /setoran/{setoranId} {
       allow read: if isAdmin()
-        || (signedIn() && resource.data.userId == request.auth.uid);
+        || (signedIn() && resource.data.userId == request.auth.uid && isActive());
 
       allow create, delete: if isAdmin();
 
       // Nasabah hanya boleh menyamakan userName (saat ganti nama di profil)
       allow update: if isAdmin()
         || (signedIn()
-            && resource.data.userId == request.auth.uid
+            && resource.data.userId == request.auth.uid && isActive()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userName']));
+    }
+
+    // Catatan penarikan saldo (hanya informasi): admin yang menulis, nasabah hanya membaca miliknya sendiri
+    match /penarikan/{penarikanId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid && isActive());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Pengumuman: semua yang login boleh baca, hanya admin yang menulis
+    match /pengumuman/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Log aktivitas admin: hanya admin; bisa ditambah tetapi tidak bisa diubah atau dihapus
+    match /log/{docId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['adminId', 'adminName', 'message', 'createdAt']);
+      allow update, delete: if false;
     }
 
     // Harga sampah: semua yang login boleh baca, hanya admin yang boleh ubah

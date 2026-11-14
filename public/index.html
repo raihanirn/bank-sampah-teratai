@@ -8,6 +8,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
     <link rel="apple-touch-icon" href="./apple-touch-icon.png">
     <meta name="theme-color" content="#047857">
+    <link rel="manifest" href="./manifest.webmanifest">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -91,6 +92,11 @@
         let dbPrices = { ...DEFAULT_PRICES };
         let dbSetoran = [];
         let dbKarya = [];
+        let dbPenarikan = [];
+        let dbPengumuman = [];
+        let dbLog = [];
+        let laporanFrom = todayStr().slice(0, 8) + '01';
+        let laporanTo = todayStr();
         let listenersStarted = false;
 
         let currentUser = null;
@@ -115,6 +121,9 @@
             dbUsers = [];
             dbSetoran = [];
             dbKarya = [];
+            dbPenarikan = [];
+            dbPengumuman = [];
+            dbLog = [];
             dbPrices = { ...DEFAULT_PRICES };
         }
 
@@ -162,11 +171,41 @@
                 }, onErr('setoran')));
             } else {
                 unsubs.push(db.collection('users').doc(user.id).onSnapshot(
-                    doc => onUsers(doc.exists ? [{ id: doc.id, ...doc.data() }] : []), onErr('users')));
+                    doc => {
+                        if (doc.exists && doc.data().status === 'Nonaktif' && currentUser && currentUser.id === user.id) {
+                            showToast('Akun Anda dinonaktifkan. Hubungi pengelola.', 'error');
+                            logout();
+                            return;
+                        }
+                        if (!doc.exists && !doc.metadata.fromCache && currentUser && currentUser.id === user.id) {
+                            showToast('Akun Anda sudah dihapus oleh pengelola.', 'error');
+                            logout();
+                            return;
+                        }
+                        onUsers(doc.exists ? [{ id: doc.id, ...doc.data() }] : []);
+                    }, onErr('users')));
                 unsubs.push(db.collection('setoran').where('userId', '==', user.id).onSnapshot(snapshot => {
                     dbSetoran = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     render();
                 }, onErr('setoran')));
+            }
+
+            // Catatan penarikan: admin melihat semua, nasabah hanya miliknya sendiri
+            const penarikanRef = isAdmin ? db.collection('penarikan') : db.collection('penarikan').where('userId', '==', user.id);
+            unsubs.push(penarikanRef.onSnapshot(snapshot => {
+                dbPenarikan = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                render();
+            }, onErr('penarikan')));
+
+            unsubs.push(db.collection('pengumuman').onSnapshot(snap => {
+                dbPengumuman = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                render();
+            }, onErr('pengumuman')));
+            if (isAdmin) {
+                unsubs.push(db.collection('log').orderBy('createdAt', 'desc').limit(100).onSnapshot(snap => {
+                    dbLog = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    render();
+                }, onErr('log')));
             }
 
             unsubs.push(db.collection('karya').onSnapshot(snapshot => {
@@ -238,6 +277,10 @@
         }
 
         function showToast(message, type = 'success') {
+            // Log aktivitas: setiap aksi admin yang berhasil dicatat (tidak bisa diubah/dihapus)
+            if (type === 'success' && currentUser && currentUser.role === 'admin' && !/^(Selamat datang|Berhasil keluar)/.test(message)) {
+                db.collection('log').add({ adminId: currentUser.id, adminName: currentUser.name || 'Admin', message: String(message).slice(0, 200), createdAt: Date.now() }).catch(() => {});
+            }
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = `px-4 py-3 rounded-2xl shadow-xl text-white font-medium text-sm flex items-center space-x-3 transition-all transform translate-y-2 opacity-0 ${type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'}`;
@@ -346,13 +389,19 @@
                                 </div>
                             ` : ''}
                             <div>
-                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nomor WhatsApp / HP</label>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nomor HP${authMode === 'login' ? ' atau Email' : ''}</label>
                                 <input type="text" id="auth-phone" required class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" placeholder="Contoh: 08123456789">
                             </div>
+                            ${authMode === 'register' && selectedAuthRole === 'nasabah' ? `
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Email (opsional)</label>
+                                    <input type="email" id="reg-email" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" placeholder="Untuk reset PIN jika lupa">
+                                </div>` : ''}
                             <div>
                                 <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN / Kata Sandi (Min. 6 karakter)</label>
                                 <input type="password" id="auth-pin" required minlength="6" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm" placeholder="Masukkan PIN minimal 6 karakter">
                             </div>
+                            ${authMode === 'login' ? '<button type="button" onclick="openLupaPinModal()" class="text-xs font-semibold text-emerald-700 hover:underline -mt-1">Lupa PIN?</button>' : ''}
                             <button type="submit" id="btn-auth-submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition flex items-center justify-center space-x-2 mt-2">
                                 <span>${selectedAuthRole === 'admin' ? 'Masuk Dashboard Admin' : (authMode === 'login' ? 'Masuk Sekarang' : 'Daftar & Otomatis Terhubung')}</span>
                                 <i class="fa-solid fa-arrow-right"></i>
@@ -367,7 +416,8 @@
             event.preventDefault();
             const phone = document.getElementById('auth-phone').value.trim();
             const pin = document.getElementById('auth-pin').value.trim();
-            const email = phoneToEmail(phone);
+            const isMail = phone.includes('@');
+            const email = isMail ? phone.toLowerCase() : phoneToEmail(phone);
             const btn = document.getElementById('btn-auth-submit');
 
             if (pin.length < 6) {
@@ -382,7 +432,10 @@
                 if (authMode === 'login' || selectedAuthRole === 'admin') {
                     const cred = await auth.signInWithEmailAndPassword(email, pin);
                     const userDoc = await db.collection('users').doc(cred.user.uid).get();
-                    if (userDoc.exists && userDoc.data().role === selectedAuthRole) {
+                    if (userDoc.exists && userDoc.data().status === 'Nonaktif' && userDoc.data().role !== 'admin') {
+                        await auth.signOut();
+                        showToast('Akun dinonaktifkan. Hubungi pengelola.', 'error');
+                    } else if (userDoc.exists && userDoc.data().role === selectedAuthRole) {
                         currentUser = { id: userDoc.id, ...userDoc.data() };
                         startRealtimeListeners(currentUser);
                         showToast(`Selamat datang kembali, ${currentUser.name}!`);
@@ -393,7 +446,9 @@
                     }
                 } else {
                     const name = document.getElementById('reg-name').value.trim();
-                    const cred = await auth.createUserWithEmailAndPassword(email, pin);
+                    if (isMail) { showToast('Isi nomor HP, bukan email. Email diisi di kolom Email.', 'error'); return; }
+                    const regMail = ((document.getElementById('reg-email') || {}).value || '').trim().toLowerCase();
+                    const cred = await auth.createUserWithEmailAndPassword(regMail || email, pin);
                     const newUser = {
                         phone,
                         name,
@@ -402,6 +457,7 @@
                         joinedDate: todayStr(),
                         status: 'Aktif'
                     };
+                    if (regMail) newUser.email = regMail;
                     await db.collection('users').doc(cred.user.uid).set(newUser);
                     currentUser = { id: cred.user.uid, ...newUser };
                     startRealtimeListeners(currentUser);
@@ -557,10 +613,12 @@
             return `
                 <div class="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 lg:items-start">
                 <div class="space-y-4 lg:col-span-5 xl:col-span-4 lg:sticky lg:top-24">
+                ${pengumumanHtml()}
                 <div class="bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-700 text-white rounded-3xl p-5 shadow-lg relative overflow-hidden">
                     <div class="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full pointer-events-none"></div>
                     <p class="text-emerald-100 text-[11px] font-semibold uppercase tracking-wider">Total Saldo Tabungan</p>
                     <h2 class="text-3xl font-black tracking-tight mt-1">${rpf(currentUser.saldo)}</h2>
+                    ${(() => { const last = [...dbPenarikan].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0))[0]; return last ? `<p class="text-[11px] text-emerald-100 mt-1">Penarikan terakhir: ${esc(formatTanggal(last.date))} &bull; ${rpf(last.amount)}</p>` : ''; })()}
                     <div class="mt-3 inline-flex items-center space-x-2 bg-white/15 px-3 py-1.5 rounded-full text-xs font-semibold">
                         <i class="fa-solid fa-weight-hanging"></i><span>${kg(totalBerat)} kg sampah terkumpul</span>
                     </div>
@@ -575,6 +633,7 @@
                 </div>
 
                 ${anniversaryHtml}
+                ${levelHtml(totalBerat)}
                 </div>
                 <div class="space-y-4 lg:col-span-7 xl:col-span-8">
 
@@ -643,9 +702,13 @@
         }
 
         function renderNasabahRiwayat(setoranList) {
-            const sorted = [...setoranList].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+            const sorted = [
+                ...setoranList.map(x => ({ ...x, _t: 'setoran' })),
+                ...dbPenarikan.map(x => ({ ...x, _t: 'penarikan' }))
+            ].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
             return `
-                <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2"><i class="fa-solid fa-clock-rotate-left text-emerald-600"></i><span>Riwayat Setoran</span></h3>
+                <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2"><i class="fa-solid fa-clock-rotate-left text-emerald-600"></i><span>Riwayat Setoran &amp; Penarikan</span></h3>
+                ${dbPenarikan.length > 0 ? '<p class="text-[11px] text-slate-500 -mt-2">Penarikan saldo dicatat oleh pengelola saat uang diambil. Web ini hanya menampilkan informasi dan tidak memproses uang.</p>' : ''}
                 ${sorted.length === 0 ? `
                     <div class="text-center py-16 text-slate-400">
                         <i class="fa-regular fa-folder-open text-4xl mb-3 opacity-50"></i>
@@ -654,6 +717,25 @@
                 ` : `
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         ${sorted.map(s => {
+                            if (s._t === 'penarikan') {
+                                return `
+                                <div class="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="flex items-center space-x-3 min-w-0">
+                                            <div class="w-10 h-10 bg-rose-100 text-rose-600 rounded-xl flex items-center justify-center shrink-0"><i class="fa-solid fa-money-bill-transfer"></i></div>
+                                            <div class="min-w-0">
+                                                <p class="font-bold text-slate-800 text-sm truncate">Penarikan Saldo</p>
+                                                <p class="text-[11px] text-slate-400">${esc(s.date || '-')}</p>
+                                            </div>
+                                        </div>
+                                        <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 bg-rose-100 text-rose-600">Ditarik</span>
+                                    </div>
+                                    <div class="mt-3 pt-3 border-t border-slate-100 flex items-end justify-between gap-3">
+                                        <p class="text-xs text-slate-500 min-w-0 break-words">${s.note ? esc(s.note) : 'Saldo diambil melalui pengelola'}</p>
+                                        <p class="text-rose-600 font-extrabold text-base shrink-0">- ${rpf(s.amount)}</p>
+                                    </div>
+                                </div>`;
+                            }
                             const done = s.status === 'Selesai';
                             return `
                             <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
@@ -686,13 +768,13 @@
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     ${dbKarya.length === 0 ? '<div class="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400 text-sm">Belum ada karya daur ulang.</div>' : ''}
-                    ${dbKarya.map(k => `
+                    ${karyaSorted().map(k => `
                         <div class="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
-                            <img src="${k.image}" alt="${k.title}" class="w-full h-44 object-cover bg-slate-100">
+                            <img src="${esc(k.image || '')}" alt="${esc(k.title || '')}" loading="lazy" class="w-full h-44 object-cover bg-slate-100">
                             <div class="p-4">
-                                <span class="px-2.5 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg inline-block mb-2">${k.category}</span>
-                                <h4 class="font-bold text-slate-800 text-sm mb-1">${k.title}</h4>
-                                <p class="text-slate-600 text-xs leading-relaxed">${k.desc}</p>
+                                <span class="px-2.5 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg inline-block mb-2">${esc(k.category || '')}</span>
+                                <h4 class="font-bold text-slate-800 text-sm mb-1">${esc(k.title || '')}</h4>
+                                <p class="text-slate-600 text-xs leading-relaxed">${esc(k.desc || '')}</p>
                             </div>
                         </div>
                     `).join('')}
@@ -966,6 +1048,15 @@
                                 <button onclick="activeAdminTab='harga'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'harga' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
                                     <i class="fa-solid fa-tags"></i><span>Harga Sampah</span>
                                 </button>
+                                <button onclick="activeAdminTab='karya'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'karya' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i><span>Karya Daur Ulang (${dbKarya.length})</span>
+                                </button>
+                                <button onclick="activeAdminTab='penarikan'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'penarikan' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}">
+                                    <i class="fa-solid fa-money-bill-transfer"></i><span>Penarikan Saldo</span>
+                                </button>
+                                <button onclick="activeAdminTab='pengumuman'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'pengumuman' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}"><i class="fa-solid fa-bullhorn"></i><span>Pengumuman</span></button>
+                                <button onclick="activeAdminTab='laporan'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'laporan' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}"><i class="fa-solid fa-file-excel"></i><span>Laporan</span></button>
+                                <button onclick="activeAdminTab='log'; render();" class="shrink-0 whitespace-nowrap px-4 py-3 text-sm font-semibold flex items-center space-x-2 border-b-2 transition ${activeAdminTab === 'log' ? 'border-amber-400 bg-teal-950/60' : 'border-transparent hover:bg-teal-950/30'}"><i class="fa-solid fa-clock-rotate-left"></i><span>Log Aktivitas</span></button>
                             </div>
                         </div>
                     </header>
@@ -976,6 +1067,11 @@
                         ${activeAdminTab === 'setoran' ? renderAdminSetoran(dbSetoran, dbPrices) : ''}
                         ${activeAdminTab === 'nasabah' ? renderAdminNasabah(usersList, dbSetoran) : ''}
                         ${activeAdminTab === 'harga' ? renderAdminHarga(dbPrices) : ''}
+                        ${activeAdminTab === 'karya' ? renderAdminKarya() : ''}
+                        ${activeAdminTab === 'penarikan' ? renderAdminPenarikan() : ''}
+                        ${activeAdminTab === 'pengumuman' ? renderAdminPengumuman() : ''}
+                        ${activeAdminTab === 'laporan' ? renderAdminLaporan() : ''}
+                        ${activeAdminTab === 'log' ? renderAdminLog() : ''}
                     </main>
                 </div>
             `;
@@ -1123,7 +1219,7 @@
                                     </div>
                                     <div class="mt-2 flex items-center justify-between gap-3">
                                         <p class="text-xs text-slate-600">${x.category} &bull; ${berat(x.actWeight)}</p>
-                                        <div class="flex items-center gap-1.5 shrink-0"><button onclick="openEditSetoranModal('${x.id}')" aria-label="Edit setoran" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
+                                        <div class="flex items-center gap-1.5 shrink-0"><button onclick="kirimBuktiWA('${x.id}')" aria-label="Kirim bukti WhatsApp" class="bg-green-50 hover:bg-green-100 text-green-700 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-brands fa-whatsapp mr-1"></i>WA</button><button onclick="openEditSetoranModal('${x.id}')" aria-label="Edit setoran" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
                                         <button onclick="openHapusSetoranModal('${x.id}')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-trash mr-1"></i>Hapus</button></div>
                                     </div>
                                 </div>
@@ -1150,7 +1246,7 @@
                                             <td class="p-3.5 font-bold text-slate-800">${berat(x.actWeight)}</td>
                                             <td class="p-3.5"><span class="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">Rp ${x.totalValue.toLocaleString('id-ID')}</span></td>
                                             <td class="p-3.5 text-center">
-                                                <div class="flex items-center justify-center gap-1.5"><button onclick="openEditSetoranModal('${x.id}')" aria-label="Edit setoran" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
+                                                <div class="flex items-center justify-center gap-1.5"><button onclick="kirimBuktiWA('${x.id}')" aria-label="Kirim bukti WhatsApp" class="bg-green-50 hover:bg-green-100 text-green-700 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-brands fa-whatsapp mr-1"></i>WA</button><button onclick="openEditSetoranModal('${x.id}')" aria-label="Edit setoran" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
                                                     <button onclick="openHapusSetoranModal('${x.id}')" aria-label="Hapus setoran" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-trash mr-1"></i>Hapus</button></div>
                                             </td>
                                         </tr>
@@ -1283,6 +1379,11 @@
             const date = document.getElementById('edit-setor-date').value || x.date;
             const r = calcEditSetoran(x);
             if (!(r.w > 0)) { showToast('Berat harus lebih dari 0!', 'error'); return; }
+            const owner = dbUsers.find(u => u.id === x.userId);
+            if (x.status === 'Selesai' && owner && (owner.saldo || 0) + (r.total - (x.totalValue || 0)) < 0) {
+                showToast('Perubahan ini membuat saldo nasabah minus. Cek dulu catatan penarikannya.', 'error');
+                return;
+            }
 
             const btn = document.getElementById('btn-edit-setoran');
             btn.disabled = true;
@@ -1342,6 +1443,11 @@
         async function handleHapusSetoran(id) {
             const x = dbSetoran.find(r => r.id === id);
             if (!x) { closeModal(); return; }
+            const owner = dbUsers.find(u => u.id === x.userId);
+            if (x.status === 'Selesai' && owner && (owner.saldo || 0) - (x.totalValue || 0) < 0) {
+                showToast('Saldo nasabah (' + rpf(owner.saldo) + ') tidak cukup untuk membatalkan setoran ini. Cek dulu catatan penarikannya.', 'error');
+                return;
+            }
             const btn = document.getElementById('btn-hapus-setoran');
             if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
 
@@ -1380,6 +1486,7 @@
                             </h3>
                             <p class="text-xs text-slate-500">Seluruh pendaftaran nasabah dari website/HP akan otomatis muncul di sini secara real-time.</p>
                         </div>
+                        <button onclick="openTambahNasabahModal()" class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2.5 rounded-xl text-sm shrink-0"><i class="fa-solid fa-user-plus mr-2"></i>Tambah Nasabah</button>
                     </div>
 
                     <!-- Search Input -->
@@ -1399,14 +1506,14 @@
                                             <p class="font-bold text-slate-800 text-sm truncate">${esc(u.name)}</p>
                                             <p class="font-mono text-xs text-slate-500">${esc(u.phone)}</p>
                                         </div>
-                                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 shrink-0">${u.status || 'Aktif'}</span>
+                                        <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold ${u.status === 'Nonaktif' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-700'} shrink-0">${u.status || 'Aktif'}</span>
                                     </div>
                                     <div class="mt-3 flex items-end justify-between gap-3">
                                         <div>
                                             <p class="font-extrabold text-emerald-700 text-sm">Rp ${(u.saldo || 0).toLocaleString('id-ID')}</p>
                                             <p class="text-[11px] text-slate-500">${kg(totalKg)} kg &bull; sejak ${u.joinedDate || '-'}</p>
                                         </div>
-                                        <button onclick="openDetailNasabahModal('${u.id}')" class="bg-white hover:bg-teal-50 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs border border-slate-200 transition shrink-0">Detail</button>
+                                        <div class="flex items-center gap-1.5 shrink-0"><button onclick="openDetailNasabahModal('${u.id}')" class="bg-white hover:bg-teal-50 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs border border-slate-200 transition shrink-0">Detail</button><button onclick="openEditNasabahModal('${u.id}')" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button><button onclick="openHapusNasabahModal('${u.id}')" aria-label="Hapus nasabah" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-trash mr-1"></i>Hapus</button></div>
                                     </div>
                                 </div>`;
                         }).join('')}
@@ -1445,12 +1552,12 @@
                                             <td class="p-3.5 font-bold text-slate-800">${kg(totalKg)} kg</td>
                                             <td class="p-3.5 font-extrabold text-emerald-700">Rp ${(u.saldo || 0).toLocaleString('id-ID')}</td>
                                             <td class="p-3.5">
-                                                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">${u.status || 'Aktif'}</span>
+                                                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold ${u.status === 'Nonaktif' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-700'}">${u.status || 'Aktif'}</span>
                                             </td>
                                             <td class="p-3.5 text-center">
-                                                <button onclick="openDetailNasabahModal('${u.id}')" class="bg-slate-100 hover:bg-teal-50 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs border border-slate-200 transition">
+                                                <div class="flex items-center justify-center gap-1.5"><button onclick="openDetailNasabahModal('${u.id}')" class="bg-slate-100 hover:bg-teal-50 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs border border-slate-200 transition">
                                                     <i class="fa-solid fa-circle-info mr-1"></i>Detail
-                                                </button>
+                                                </button><button onclick="openEditNasabahModal('${u.id}')" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button><button onclick="openHapusNasabahModal('${u.id}')" aria-label="Hapus nasabah" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-trash mr-1"></i>Hapus</button></div>
                                             </td>
                                         </tr>
                                     `;
@@ -1460,6 +1567,740 @@
                     </div>
                 </div>
             `;
+        }
+
+        // ================= LUPA PIN, NASABAH, PENGUMUMAN, LAPORAN, LOG =================
+        function openLupaPinModal() {
+            openModal(`<form onsubmit="handleLupaPin(event)" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                ${modalHeader('Lupa PIN')}
+                <p class="text-xs text-slate-500">Masukkan email yang dipakai saat mendaftar. Tautan untuk membuat PIN baru akan dikirim ke email itu. Jika kamu mendaftar tanpa email, hubungi pengelola untuk reset.</p>
+                <input type="email" id="lupa-email" required placeholder="email@contoh.com" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm">
+                <div class="flex gap-2"><button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                <button type="submit" id="btn-lupa" class="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm">Kirim Tautan</button></div></form>`);
+        }
+        async function handleLupaPin(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-lupa'); btn.disabled = true;
+            try { await auth.sendPasswordResetEmail(document.getElementById('lupa-email').value.trim().toLowerCase()); } catch (err) { console.error(err); }
+            closeModal();
+            showToast('Jika email terdaftar, tautan reset PIN sudah dikirim. Cek juga folder spam.');
+        }
+
+        function openEditNasabahModal(id) {
+            const u = dbUsers.find(x => x.id === id); if (!u) return;
+            const inp = 'w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm';
+            openModal(`<form onsubmit="handleEditNasabah(event, '${u.id}')" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                ${modalHeader('Edit Nasabah')}
+                <div><label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nama</label><input id="en-name" required maxlength="60" value="${esc(u.name || '')}" class="${inp}"></div>
+                <div><label class="block text-xs font-bold text-slate-600 uppercase mb-1">Alamat</label><input id="en-address" maxlength="120" value="${esc(u.address || '')}" class="${inp}"></div>
+                <div><label class="block text-xs font-bold text-slate-600 uppercase mb-1">Status Akun</label>
+                    <select id="en-status" class="${inp} bg-white"><option value="Aktif" ${u.status !== 'Nonaktif' ? 'selected' : ''}>Aktif</option><option value="Nonaktif" ${u.status === 'Nonaktif' ? 'selected' : ''}>Nonaktif (tidak bisa masuk, data tetap tersimpan)</option></select></div>
+                <p class="text-[11px] text-slate-400">Nomor HP tidak bisa diubah karena dipakai untuk login.</p>
+                <div class="flex gap-2"><button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                <button type="submit" id="btn-en" class="flex-1 py-3 rounded-xl bg-teal-700 text-white font-bold text-sm">Simpan</button></div></form>`);
+        }
+        async function handleEditNasabah(e, id) {
+            e.preventDefault();
+            const u = dbUsers.find(x => x.id === id); if (!u) return;
+            const name = document.getElementById('en-name').value.trim();
+            const address = document.getElementById('en-address').value.trim();
+            const status = document.getElementById('en-status').value;
+            if (!name) { showToast('Nama tidak boleh kosong!', 'error'); return; }
+            const btn = document.getElementById('btn-en'); btn.disabled = true;
+            try {
+                const b = db.batch();
+                b.update(db.collection('users').doc(id), { name, address, status });
+                if (name !== u.name) dbSetoran.filter(s => s.userId === id).forEach(s => b.update(db.collection('setoran').doc(s.id), { userName: name }));
+                await b.commit();
+                closeModal();
+                showToast('Data nasabah ' + name + ' diperbarui' + (status !== (u.status || 'Aktif') ? ' (status: ' + status + ')' : '') + '.');
+            } catch (err) { console.error(err); showToast('Gagal menyimpan: ' + err.message, 'error'); btn.disabled = false; }
+        }
+
+        function kirimBuktiWA(id) {
+            const x = dbSetoran.find(r => r.id === id); if (!x) return;
+            const u = dbUsers.find(r => r.id === x.userId);
+            let ph = String((u && u.phone) || '').replace(/[^0-9]/g, '');
+            if (ph.startsWith('0')) ph = '62' + ph.slice(1);
+            const msg = 'Halo ' + (x.userName || '') + ', setoran sampah Anda sudah dicatat:\n' + x.category + ' ' + berat(x.actWeight) + ' = ' + rpf(x.totalValue) + '\nTanggal: ' + x.date + '\nSaldo Anda saat ini: ' + rpf(u ? u.saldo : 0) + '\n\nTerima kasih - Bank Sampah Teratai RW 04';
+            window.open('https://wa.me/' + ph + '?text=' + encodeURIComponent(msg), '_blank', 'noopener');
+        }
+
+        const LEVELS = [[0, 'Pemula Pilah'], [10, 'Pemilah Handal'], [50, 'Pahlawan Lingkungan'], [100, 'Duta Teratai']];
+        function levelHtml(kgTotal) {
+            let i = 0; LEVELS.forEach((l, k) => { if (kgTotal >= l[0]) i = k; });
+            const next = LEVELS[i + 1];
+            const pct = next ? Math.min(100, Math.round(((kgTotal - LEVELS[i][0]) / (next[0] - LEVELS[i][0])) * 100)) : 100;
+            return `<div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+                <div class="flex items-center justify-between"><p class="text-[11px] text-slate-500 font-semibold uppercase">Level Pilah-mu</p><span class="text-xs font-bold text-emerald-700">${LEVELS[i][1]}</span></div>
+                <div class="h-2 bg-slate-100 rounded-full mt-2 overflow-hidden"><div class="h-full bg-emerald-500 rounded-full" style="width:${pct}%"></div></div>
+                <p class="text-[11px] text-slate-500 mt-1.5">${next ? 'Tinggal ' + kg(next[0] - kgTotal) + ' kg lagi menuju ' + next[1] : 'Level tertinggi tercapai. Terima kasih sudah memilah!'}</p></div>`;
+        }
+
+        function pengumumanSorted() { return [...dbPengumuman].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); }
+        function pengumumanHtml() {
+            return pengumumanSorted().slice(0, 3).map(a => `<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                <p class="text-xs font-bold text-amber-800"><i class="fa-solid fa-bullhorn mr-1.5"></i>${esc(a.title || '')}</p>
+                <p class="text-xs text-amber-900 mt-1 whitespace-pre-line break-words">${esc(a.body || '')}</p></div>`).join('');
+        }
+        function renderAdminPengumuman() {
+            const list = pengumumanSorted();
+            return `<div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div>
+                    <h3 class="font-bold text-slate-800 text-lg"><i class="fa-solid fa-bullhorn text-teal-700 mr-2"></i>Pengumuman &amp; Jadwal</h3>
+                    <p class="text-xs text-slate-500">Tiga pengumuman terbaru tampil di Beranda semua nasabah.</p></div>
+                    <button onclick="openPengumumanModal()" class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2.5 rounded-xl text-sm shrink-0"><i class="fa-solid fa-plus mr-2"></i>Buat Pengumuman</button></div>
+                ${list.length === 0 ? '<div class="p-10 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-2xl">Belum ada pengumuman.</div>' : `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">${list.map(a => `
+                    <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4"><p class="font-bold text-slate-800 text-sm break-words">${esc(a.title || '')}</p>
+                    <p class="text-xs text-slate-600 mt-1 whitespace-pre-line break-words">${esc(a.body || '')}</p>
+                    <div class="mt-3 flex gap-2"><button onclick="openPengumumanModal('${a.id}')" class="flex-1 bg-white text-teal-800 font-bold py-1.5 rounded-lg text-xs border border-slate-200">Edit</button>
+                    <button onclick="hapusPengumuman('${a.id}')" class="flex-1 bg-rose-50 text-rose-600 font-bold py-1.5 rounded-lg text-xs">Hapus</button></div></div>`).join('')}</div>`}</div>`;
+        }
+        function openPengumumanModal(id) {
+            const a = id ? dbPengumuman.find(x => x.id === id) : null;
+            const inp = 'w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm';
+            openModal(`<form onsubmit="handleSavePengumuman(event, ${a ? "'" + a.id + "'" : 'null'})" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                ${modalHeader(a ? 'Edit Pengumuman' : 'Buat Pengumuman')}
+                <div><label class="block text-xs font-bold text-slate-600 uppercase mb-1">Judul</label><input id="pg-title" required maxlength="80" value="${esc(a ? a.title : '')}" placeholder="Contoh: Penimbangan Sabtu 08.00" class="${inp}"></div>
+                <div><label class="block text-xs font-bold text-slate-600 uppercase mb-1">Isi</label><textarea id="pg-body" required maxlength="500" rows="4" class="${inp} resize-none">${esc(a ? a.body : '')}</textarea></div>
+                <div class="flex gap-2"><button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                <button type="submit" id="btn-pg" class="flex-1 py-3 rounded-xl bg-teal-700 text-white font-bold text-sm">Simpan</button></div></form>`);
+        }
+        async function handleSavePengumuman(e, id) {
+            e.preventDefault();
+            const data = { title: document.getElementById('pg-title').value.trim(), body: document.getElementById('pg-body').value.trim() };
+            const btn = document.getElementById('btn-pg'); btn.disabled = true;
+            try {
+                if (id) await db.collection('pengumuman').doc(id).update(data); else await db.collection('pengumuman').add({ ...data, createdAt: Date.now() });
+                closeModal(); showToast(id ? 'Pengumuman diperbarui.' : 'Pengumuman "' + data.title + '" dipublikasikan.');
+            } catch (err) { console.error(err); showToast('Gagal menyimpan: ' + err.message, 'error'); btn.disabled = false; }
+        }
+        async function hapusPengumuman(id) {
+            const a = dbPengumuman.find(x => x.id === id); if (!a || !confirm('Hapus pengumuman "' + a.title + '"?')) return;
+            try { await db.collection('pengumuman').doc(id).delete(); showToast('Pengumuman dihapus.'); } catch (err) { showToast('Gagal menghapus: ' + err.message, 'error'); }
+        }
+
+        function laporanData() {
+            const inR = d => (d || '') >= laporanFrom && (d || '') <= laporanTo;
+            const set = dbSetoran.filter(s => s.status === 'Selesai' && inR(s.date));
+            const pen = dbPenarikan.filter(p => inR(p.date));
+            const perKat = {}, perNas = {};
+            set.forEach(s => {
+                const k = perKat[s.category] = perKat[s.category] || { kg: 0, rp: 0 }; k.kg += s.actWeight || 0; k.rp += s.totalValue || 0;
+                const n = perNas[s.userName || '-'] = perNas[s.userName || '-'] || { kg: 0, rp: 0, n: 0 }; n.kg += s.actWeight || 0; n.rp += s.totalValue || 0; n.n++;
+            });
+            return { set, pen, perKat, perNas, totKg: set.reduce((a, s) => a + (s.actWeight || 0), 0), totRp: set.reduce((a, s) => a + (s.totalValue || 0), 0), totPen: pen.reduce((a, p) => a + (p.amount || 0), 0) };
+        }
+        function renderAdminLaporan() {
+            const d = laporanData();
+            const inp = 'px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white';
+            return `<div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-5">
+                <div class="flex flex-col md:flex-row md:items-end justify-between gap-3"><div><h3 class="font-bold text-slate-800 text-lg"><i class="fa-solid fa-file-excel text-teal-700 mr-2"></i>Laporan Rekap</h3>
+                <p class="text-xs text-slate-500">Pilih periode, lalu unduh file yang bisa dibuka di Excel atau Google Sheets.</p></div>
+                <div class="flex flex-wrap items-end gap-2"><label class="text-[11px] font-bold text-slate-500 uppercase">Dari<br><input type="date" value="${laporanFrom}" onchange="laporanFrom=this.value||laporanFrom; render()" class="${inp}"></label>
+                <label class="text-[11px] font-bold text-slate-500 uppercase">Sampai<br><input type="date" value="${laporanTo}" onchange="laporanTo=this.value||laporanTo; render()" class="${inp}"></label>
+                <button onclick="unduhLaporan()" class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2.5 rounded-xl text-sm"><i class="fa-solid fa-download mr-2"></i>Unduh Excel (CSV)</button></div></div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">${[['Jumlah setoran', d.set.length + 'x'], ['Total sampah', kg(d.totKg) + ' kg'], ['Total nilai setoran', rpf(d.totRp)], ['Total penarikan', rpf(d.totPen)]].map(c => `<div class="bg-slate-50 border border-slate-200 rounded-2xl p-3.5"><p class="text-[11px] text-slate-500 font-semibold uppercase">${c[0]}</p><p class="font-extrabold text-slate-800 text-base break-words">${c[1]}</p></div>`).join('')}</div>
+                <div class="overflow-x-auto"><table class="w-full text-left text-sm text-slate-600 min-w-[360px]"><thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold"><tr><th class="p-3 rounded-l-xl">Kategori</th><th class="p-3">Berat</th><th class="p-3 rounded-r-xl">Nilai</th></tr></thead>
+                <tbody class="divide-y divide-slate-100">${Object.keys(d.perKat).length === 0 ? '<tr><td colspan="3" class="p-6 text-center text-slate-400">Tidak ada setoran pada periode ini.</td></tr>' : Object.keys(d.perKat).sort().map(k => `<tr><td class="p-3 font-bold text-slate-800">${esc(k)}</td><td class="p-3">${kg(d.perKat[k].kg)} kg</td><td class="p-3 font-bold text-emerald-700">${rpf(d.perKat[k].rp)}</td></tr>`).join('')}</tbody></table></div></div>`;
+        }
+        function unduhLaporan() {
+            const d = laporanData(); const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+            const row = a => a.map(q).join(';');
+            const L = ['sep=;', row(['LAPORAN BANK SAMPAH TERATAI']), row(['Periode', laporanFrom + ' s/d ' + laporanTo]), '',
+                row(['REKAP PER KATEGORI']), row(['Kategori', 'Berat (kg)', 'Nilai (Rp)']), ...Object.keys(d.perKat).sort().map(k => row([k, d.perKat[k].kg, d.perKat[k].rp])), row(['TOTAL', d.totKg, d.totRp]), '',
+                row(['REKAP PER NASABAH']), row(['Nasabah', 'Jumlah setoran', 'Berat (kg)', 'Nilai (Rp)']), ...Object.keys(d.perNas).sort().map(k => row([k, d.perNas[k].n, d.perNas[k].kg, d.perNas[k].rp])), '',
+                row(['DAFTAR SETORAN']), row(['Tanggal', 'Nasabah', 'Kategori', 'Berat (kg)', 'Nilai (Rp)']), ...d.set.sort((a, b) => a.date.localeCompare(b.date)).map(s => row([s.date, s.userName, s.category, s.actWeight, s.totalValue])), '',
+                row(['DAFTAR PENARIKAN SALDO']), row(['Tanggal', 'Nasabah', 'Jumlah (Rp)', 'Catatan']), ...d.pen.map(p => row([p.date, (dbUsers.find(u => u.id === p.userId) || {}).name || '(dihapus)', p.amount, p.note])), row(['TOTAL', '', d.totPen, ''])];
+            const url = URL.createObjectURL(new Blob(['\ufeff' + L.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+            const a = document.createElement('a'); a.href = url; a.download = 'laporan-bank-sampah-' + laporanFrom + '_' + laporanTo + '.csv';
+            document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast('Laporan periode ' + laporanFrom + ' s/d ' + laporanTo + ' diunduh.');
+        }
+
+        function renderAdminLog() {
+            return `<div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-4">
+                <div><h3 class="font-bold text-slate-800 text-lg"><i class="fa-solid fa-clock-rotate-left text-teal-700 mr-2"></i>Log Aktivitas Admin</h3>
+                <p class="text-xs text-slate-500">100 aksi terakhir. Catatan ini tidak bisa diubah atau dihapus siapa pun dari web.</p></div>
+                ${dbLog.length === 0 ? '<div class="p-10 text-center text-slate-400 text-sm">Belum ada aktivitas tercatat.</div>' : `<div class="divide-y divide-slate-100">${dbLog.map(l => `<div class="py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                    <p class="text-sm text-slate-700 break-words">${esc(l.message || '')}</p>
+                    <p class="text-[11px] text-slate-400 shrink-0">${esc(l.adminName || '')} &bull; ${new Date(l.createdAt || 0).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}</p></div>`).join('')}</div>`}</div>`;
+        }
+
+        // ================= PENARIKAN SALDO (ADMIN, HANYA CATATAN INFORMASI) =================
+        function parseRupiah(v) {
+            const n = parseInt(String(v).replace(/[^0-9]/g, ''), 10);
+            return isNaN(n) ? 0 : n;
+        }
+
+        function penarikanSorted() {
+            return [...dbPenarikan].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
+        }
+
+        function renderAdminPenarikan() {
+            const list = penarikanSorted();
+            const total = list.reduce((acc, x) => acc + (x.amount || 0), 0);
+            const nama = x => esc((dbUsers.find(u => u.id === x.userId) || {}).name || '(nasabah dihapus)');
+            const actions = x => `<div class="flex items-center justify-center gap-1.5">
+                <button onclick="openPenarikanModal('${x.id}')" class="bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
+                <button onclick="openHapusPenarikanModal('${x.id}')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg text-xs transition shrink-0"><i class="fa-solid fa-trash mr-1"></i>Hapus</button>
+            </div>`;
+            return `
+                <div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-5">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
+                                <i class="fa-solid fa-money-bill-transfer text-teal-700"></i>
+                                <span>Penarikan Saldo</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 max-w-2xl">Web ini tidak memproses uang. Serahkan uangnya langsung ke nasabah, lalu catat di sini agar saldo nasabah berkurang dan penarikannya bisa mereka lihat di akunnya.</p>
+                        </div>
+                        <button onclick="openPenarikanModal()" class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2.5 rounded-xl text-sm shrink-0"><i class="fa-solid fa-plus mr-2"></i>Catat Penarikan</button>
+                    </div>
+                    <div class="bg-rose-50 border border-rose-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                        <span class="text-xs font-semibold text-slate-600">Total saldo yang sudah ditarik</span>
+                        <span class="font-extrabold text-rose-600">${rpf(total)}</span>
+                    </div>
+                    ${list.length === 0 ? '<div class="p-10 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-2xl">Belum ada catatan penarikan.</div>' : `
+                        <div class="md:hidden space-y-2">
+                            ${list.map(x => `
+                                <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <p class="font-bold text-slate-800 text-sm truncate">${nama(x)}</p>
+                                            <p class="text-[11px] text-slate-400">${esc(x.date || '-')}</p>
+                                        </div>
+                                        <span class="text-xs font-extrabold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-lg shrink-0">- ${rpf(x.amount)}</span>
+                                    </div>
+                                    ${x.note ? `<p class="mt-2 text-xs text-slate-600 break-words">${esc(x.note)}</p>` : ''}
+                                    <div class="mt-3">${actions(x)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="hidden md:block overflow-x-auto">
+                            <table class="w-full text-left text-sm text-slate-600">
+                                <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                                    <tr>
+                                        <th class="p-3.5 rounded-l-xl">Nasabah</th>
+                                        <th class="p-3.5">Tanggal</th>
+                                        <th class="p-3.5">Catatan</th>
+                                        <th class="p-3.5">Jumlah</th>
+                                        <th class="p-3.5 rounded-r-xl text-center">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    ${list.map(x => `
+                                        <tr class="hover:bg-slate-50 transition">
+                                            <td class="p-3.5 font-bold text-slate-800">${nama(x)}</td>
+                                            <td class="p-3.5 text-xs text-slate-500">${esc(x.date || '-')}</td>
+                                            <td class="p-3.5 text-xs text-slate-600 break-words max-w-xs">${x.note ? esc(x.note) : '<span class="text-slate-300">-</span>'}</td>
+                                            <td class="p-3.5"><span class="text-xs font-extrabold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-lg">- ${rpf(x.amount)}</span></td>
+                                            <td class="p-3.5">${actions(x)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>`}
+                </div>
+            `;
+        }
+
+        function penarikanAvailable(userId, editing) {
+            const u = dbUsers.find(x => x.id === userId);
+            return (u ? (u.saldo || 0) : 0) + (editing ? (editing.amount || 0) : 0);
+        }
+
+        function updatePenarikanInfo(id) {
+            const editing = id ? dbPenarikan.find(x => x.id === id) : null;
+            const uid = editing ? editing.userId : (document.getElementById('pen-user') || {}).value;
+            const el = document.getElementById('pen-info');
+            if (el) el.textContent = uid ? 'Saldo yang bisa ditarik: ' + rpf(penarikanAvailable(uid, editing)) : '';
+        }
+
+        function openPenarikanModal(id) {
+            const editing = id ? dbPenarikan.find(x => x.id === id) : null;
+            if (id && !editing) { showToast('Catatan penarikan tidak ditemukan!', 'error'); return; }
+            const nasabah = dbUsers.filter(u => u.role === 'nasabah');
+            const owner = editing ? dbUsers.find(u => u.id === editing.userId) : null;
+            openModal(`
+                <form onsubmit="handleSavePenarikan(event, ${editing ? "'" + editing.id + "'" : 'null'})" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    ${modalHeader(editing ? 'Edit Penarikan' : 'Catat Penarikan Saldo')}
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nasabah</label>
+                        ${editing ? `<div class="bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-800">${esc(owner ? owner.name : '(nasabah dihapus)')}</div>` : `
+                            <select id="pen-user" required onchange="updatePenarikanInfo()" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
+                                <option value="">Pilih nasabah...</option>
+                                ${nasabah.map(u => `<option value="${u.id}">${esc(u.name)} (${esc(u.phone || '-')}) - ${rpf(u.saldo)}</option>`).join('')}
+                            </select>`}
+                        <p id="pen-info" class="text-[11px] text-emerald-700 font-semibold mt-1"></p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tanggal Penarikan</label>
+                        <input type="date" id="pen-date" required value="${esc(editing ? editing.date || todayStr() : todayStr())}" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Jumlah (Rp)</label>
+                        <input type="text" inputmode="numeric" autocomplete="off" id="pen-amount" required value="${editing ? editing.amount : ''}" placeholder="Contoh: 50000" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Catatan (opsional)</label>
+                        <input type="text" id="pen-note" maxlength="100" value="${esc(editing ? editing.note || '' : '')}" placeholder="Contoh: Diambil langsung saat penimbangan" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm">
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="submit" id="btn-pen-save" class="flex-1 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm">${editing ? 'Simpan' : 'Catat'}</button>
+                    </div>
+                </form>
+            `);
+            updatePenarikanInfo(id);
+        }
+
+        async function handleSavePenarikan(event, id) {
+            event.preventDefault();
+            const editing = id ? dbPenarikan.find(x => x.id === id) : null;
+            if (id && !editing) { closeModal(); return; }
+            const userId = editing ? editing.userId : document.getElementById('pen-user').value;
+            const date = document.getElementById('pen-date').value || todayStr();
+            const amount = parseRupiah(document.getElementById('pen-amount').value);
+            const note = document.getElementById('pen-note').value.trim();
+
+            if (!userId) { showToast('Pilih nasabah dulu!', 'error'); return; }
+            if (amount <= 0) { showToast('Jumlah harus lebih dari 0!', 'error'); return; }
+            const owner = dbUsers.find(u => u.id === userId);
+            if (!owner) { showToast('Nasabah tidak ditemukan!', 'error'); return; }
+            if (amount > penarikanAvailable(userId, editing)) {
+                showToast('Jumlah melebihi saldo nasabah (' + rpf(penarikanAvailable(userId, editing)) + ')!', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn-pen-save');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            try {
+                // Catatan dan saldo diperbarui sekaligus
+                const batch = db.batch();
+                const userRef = db.collection('users').doc(userId);
+                if (editing) {
+                    const diff = amount - (editing.amount || 0);
+                    batch.update(db.collection('penarikan').doc(id), { date, amount, note });
+                    if (diff !== 0) batch.update(userRef, { saldo: firebase.firestore.FieldValue.increment(-diff) });
+                } else {
+                    batch.set(db.collection('penarikan').doc(), { userId, date, amount, note, createdAt: Date.now() });
+                    batch.update(userRef, { saldo: firebase.firestore.FieldValue.increment(-amount) });
+                }
+                await batch.commit();
+                closeModal();
+                showToast(editing ? 'Catatan penarikan diperbarui.' : 'Penarikan ' + rpf(amount) + ' dicatat. Saldo ' + owner.name + ' dikurangi.');
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menyimpan: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = editing ? 'Simpan' : 'Catat';
+            }
+        }
+
+        function openHapusPenarikanModal(id) {
+            const x = dbPenarikan.find(r => r.id === id);
+            if (!x) return;
+            const owner = dbUsers.find(u => u.id === x.userId);
+            openModal(`
+                <div class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-11 h-11 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center shrink-0"><i class="fa-solid fa-trash"></i></div>
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base">Hapus catatan penarikan?</h3>
+                            <p class="text-xs text-slate-500 mt-0.5">${owner ? 'Saldo ' + esc(owner.name) + ' dikembalikan sebesar ' + rpf(x.amount) + '.' : 'Nasabah sudah dihapus, saldo tidak berubah.'}</p>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-sm space-y-1.5">
+                        <div class="flex justify-between gap-4"><span class="text-slate-500">Tanggal</span><span class="font-semibold text-slate-800">${esc(x.date || '-')}</span></div>
+                        <div class="flex justify-between gap-4"><span class="text-slate-500">Jumlah</span><span class="font-semibold text-rose-600">- ${rpf(x.amount)}</span></div>
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="button" id="btn-hapus-pen" onclick="handleHapusPenarikan('${x.id}')" class="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">Ya, Hapus</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        async function handleHapusPenarikan(id) {
+            const x = dbPenarikan.find(r => r.id === id);
+            if (!x) { closeModal(); return; }
+            const btn = document.getElementById('btn-hapus-pen');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
+            try {
+                const batch = db.batch();
+                batch.delete(db.collection('penarikan').doc(id));
+                if (dbUsers.some(u => u.id === x.userId)) {
+                    batch.update(db.collection('users').doc(x.userId), { saldo: firebase.firestore.FieldValue.increment(x.amount || 0) });
+                }
+                await batch.commit();
+                closeModal();
+                showToast('Catatan penarikan dihapus. Saldo dikembalikan.');
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menghapus: ' + err.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Ya, Hapus'; }
+            }
+        }
+
+        // ================= KARYA DAUR ULANG (ADMIN) =================
+        const MAX_FOTO_KARYA = 1024 * 1024; // batas ukuran file foto: 1 MB
+        let karyaDraftImage = null;
+        let karyaBusy = false;
+
+        function karyaSorted() {
+            return [...dbKarya].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        }
+
+        // Foto dikecilkan dulu (maks. 900px, JPEG) supaya muat disimpan di Firestore tanpa layanan tambahan
+        function compressImage(file, maxSide = 900, quality = 0.78, maxChars = 700000) {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = () => {
+                    URL.revokeObjectURL(url);
+                    try {
+                        let side = maxSide, q = quality;
+                        for (let i = 0; i < 6; i++) {
+                            const scale = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+                            const w = Math.max(1, Math.round(img.naturalWidth * scale));
+                            const h = Math.max(1, Math.round(img.naturalHeight * scale));
+                            const c = document.createElement('canvas');
+                            c.width = w; c.height = h;
+                            const ctx = c.getContext('2d');
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(0, 0, w, h);
+                            ctx.drawImage(img, 0, 0, w, h);
+                            const out = c.toDataURL('image/jpeg', q);
+                            if (out.length <= maxChars) return resolve(out);
+                            q = Math.max(0.5, q - 0.1);
+                            side = Math.round(side * 0.85);
+                        }
+                        reject(new Error('Foto terlalu besar'));
+                    } catch (e) { reject(e); }
+                };
+                img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Format foto tidak didukung')); };
+                img.src = url;
+            });
+        }
+
+        function karyaPreviewHtml() {
+            return karyaDraftImage
+                ? `<img src="${esc(karyaDraftImage)}" alt="Pratinjau karya" class="w-full h-full object-cover">`
+                : `<div class="text-center text-slate-400 text-sm"><i class="fa-regular fa-image text-3xl block mb-1"></i>Belum ada foto</div>`;
+        }
+
+        function renderAdminKarya() {
+            const list = karyaSorted();
+            return `
+                <div class="bg-white rounded-3xl p-4 sm:p-6 shadow-md border border-slate-200 space-y-5">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center space-x-2">
+                                <i class="fa-solid fa-wand-magic-sparkles text-teal-700"></i>
+                                <span>Karya Daur Ulang</span>
+                            </h3>
+                            <p class="text-xs text-slate-500">Karya yang diunggah di sini langsung tampil di tab Karya milik semua nasabah.</p>
+                        </div>
+                        <button onclick="openKaryaModal()" class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2.5 rounded-xl text-sm shrink-0"><i class="fa-solid fa-plus mr-2"></i>Upload Karya</button>
+                    </div>
+                    ${list.length === 0 ? '<div class="p-10 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-2xl">Belum ada karya. Tekan "Upload Karya" untuk menambahkan yang pertama.</div>' : `
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                            ${list.map(k => `
+                                <div class="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col">
+                                    <img src="${esc(k.image || '')}" alt="${esc(k.title || '')}" loading="lazy" class="w-full h-40 object-cover bg-slate-100">
+                                    <div class="p-3.5 flex-1 flex flex-col">
+                                        <span class="px-2.5 py-0.5 bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg inline-block self-start mb-2">${esc(k.category || '-')}</span>
+                                        <h4 class="font-bold text-slate-800 text-sm mb-1 break-words">${esc(k.title || '-')}</h4>
+                                        <p class="text-slate-600 text-xs leading-relaxed line-clamp-3 break-words">${esc(k.desc || '')}</p>
+                                        <div class="mt-3 pt-3 border-t border-slate-200 flex gap-2 mt-auto">
+                                            <button onclick="openKaryaModal('${k.id}')" class="flex-1 bg-white hover:bg-teal-50 text-teal-800 font-bold py-1.5 rounded-lg text-xs border border-slate-200 transition"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
+                                            <button onclick="openHapusKaryaModal('${k.id}')" class="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold py-1.5 rounded-lg text-xs transition"><i class="fa-solid fa-trash mr-1"></i>Hapus</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>`}
+                </div>
+            `;
+        }
+
+        function openKaryaModal(id) {
+            const k = id ? dbKarya.find(r => r.id === id) : null;
+            if (id && !k) { showToast('Karya tidak ditemukan!', 'error'); return; }
+            karyaDraftImage = k ? (k.image || null) : null;
+            karyaBusy = false;
+            const cats = [...new Set(['Dekorasi', 'Pot & Tanaman', 'Tas & Dompet', 'Furnitur', 'Mainan', ...dbKarya.map(r => r.category).filter(Boolean)])];
+            openModal(`
+                <form onsubmit="handleSaveKarya(event, ${k ? "'" + k.id + "'" : 'null'})" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    ${modalHeader(k ? 'Edit Karya' : 'Upload Karya Daur Ulang')}
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Foto Karya</label>
+                        <div id="karya-preview" class="w-full aspect-video bg-slate-100 rounded-2xl overflow-hidden flex items-center justify-center border border-slate-200">${karyaPreviewHtml()}</div>
+                        <label class="mt-2 inline-flex items-center px-4 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-xs cursor-pointer transition">
+                            <i class="fa-solid fa-image mr-2"></i><span>${k ? 'Ganti Foto' : 'Pilih Foto'}</span>
+                            <input type="file" accept="image/*" class="hidden" onchange="handleKaryaFile(this)">
+                        </label>
+                        <p class="text-[11px] text-slate-400 mt-1">Ukuran foto maksimal 1 MB. Foto otomatis dikecilkan agar ringan dibuka di HP nasabah.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Judul Karya</label>
+                        <input type="text" id="karya-title" required maxlength="80" value="${esc(k ? k.title || '' : '')}" placeholder="Contoh: Pot Bunga dari Botol Bekas" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Kategori</label>
+                        <input type="text" id="karya-category" required maxlength="40" list="karya-cats" value="${esc(k ? k.category || '' : '')}" placeholder="Pilih atau ketik kategori" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm">
+                        <datalist id="karya-cats">${cats.map(c => `<option value="${esc(c)}"></option>`).join('')}</datalist>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Deskripsi</label>
+                        <textarea id="karya-desc" required maxlength="400" rows="3" placeholder="Bahan, cara membuat, atau cerita singkat karya ini" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm resize-none">${esc(k ? k.desc || '' : '')}</textarea>
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="submit" id="btn-karya-save" class="flex-1 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm disabled:opacity-60">${k ? 'Simpan' : 'Upload'}</button>
+                    </div>
+                </form>
+            `);
+        }
+
+        async function handleKaryaFile(input) {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) { showToast('File harus berupa gambar!', 'error'); input.value = ''; return; }
+            if (file.size > MAX_FOTO_KARYA) {
+                showToast('Ukuran foto ' + (file.size / 1048576).toFixed(1).replace('.', ',') + ' MB, maksimal 1 MB!', 'error');
+                input.value = '';
+                return;
+            }
+            const prev = document.getElementById('karya-preview');
+            const saveBtn = document.getElementById('btn-karya-save');
+            karyaBusy = true;
+            if (saveBtn) saveBtn.disabled = true;
+            if (prev) prev.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-slate-400 text-xl"></i>';
+            try {
+                karyaDraftImage = await compressImage(file);
+            } catch (err) {
+                console.error(err);
+                showToast('Foto tidak bisa diproses. Coba foto lain.', 'error');
+            } finally {
+                karyaBusy = false;
+                const prev2 = document.getElementById('karya-preview');
+                if (prev2) prev2.innerHTML = karyaPreviewHtml();
+                const btn2 = document.getElementById('btn-karya-save');
+                if (btn2) btn2.disabled = false;
+            }
+        }
+
+        async function handleSaveKarya(event, id) {
+            event.preventDefault();
+            if (karyaBusy) return;
+            if (!karyaDraftImage) { showToast('Pilih foto karya dulu!', 'error'); return; }
+            const data = {
+                title: document.getElementById('karya-title').value.trim(),
+                category: document.getElementById('karya-category').value.trim(),
+                desc: document.getElementById('karya-desc').value.trim(),
+                image: karyaDraftImage
+            };
+            if (!data.title || !data.category || !data.desc) { showToast('Judul, kategori, dan deskripsi wajib diisi!', 'error'); return; }
+
+            const btn = document.getElementById('btn-karya-save');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            try {
+                if (id) await db.collection('karya').doc(id).update(data);
+                else await db.collection('karya').add({ ...data, createdAt: Date.now() });
+                closeModal();
+                showToast(id ? 'Karya diperbarui.' : 'Karya berhasil diunggah!');
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menyimpan karya: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.textContent = id ? 'Simpan' : 'Upload';
+            }
+        }
+
+        function openHapusKaryaModal(id) {
+            const k = dbKarya.find(r => r.id === id);
+            if (!k) return;
+            openModal(`
+                <div class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-11 h-11 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center shrink-0"><i class="fa-solid fa-trash"></i></div>
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base">Hapus karya ini?</h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Karya akan hilang dari tab Karya semua nasabah dan tidak bisa dikembalikan.</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                        <img src="${esc(k.image || '')}" alt="" class="w-16 h-16 rounded-xl object-cover bg-slate-100 shrink-0">
+                        <div class="min-w-0">
+                            <p class="font-bold text-slate-800 text-sm break-words">${esc(k.title || '-')}</p>
+                            <p class="text-xs text-slate-500">${esc(k.category || '-')}</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="button" id="btn-hapus-karya" onclick="handleHapusKarya('${k.id}')" class="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">Ya, Hapus</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        async function handleHapusKarya(id) {
+            const btn = document.getElementById('btn-hapus-karya');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
+            try {
+                await db.collection('karya').doc(id).delete();
+                closeModal();
+                showToast('Karya dihapus.');
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menghapus karya: ' + err.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Ya, Hapus'; }
+            }
+        }
+
+        // ================= TAMBAH & HAPUS NASABAH (ADMIN) =================
+        let secondaryApp = null;
+        // Akun nasabah dibuat lewat koneksi Firebase kedua supaya sesi admin tidak ikut berganti
+        function getSecondaryAuth() {
+            if (!secondaryApp) secondaryApp = firebase.initializeApp(firebaseConfig, 'secondary');
+            return secondaryApp.auth();
+        }
+
+        function openTambahNasabahModal() {
+            openModal(`
+                <form onsubmit="handleTambahNasabah(event)" class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    ${modalHeader('Tambah Nasabah')}
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nama Lengkap</label>
+                        <input type="text" id="new-nasabah-name" required maxlength="60" placeholder="Nama nasabah" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nomor HP / WhatsApp</label>
+                        <input type="tel" inputmode="numeric" id="new-nasabah-phone" required maxlength="16" placeholder="Contoh: 081234567890" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm">
+                        <p class="text-[11px] text-slate-400 mt-1">Nomor ini dipakai nasabah untuk masuk.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Alamat (opsional)</label>
+                        <input type="text" id="new-nasabah-address" maxlength="120" placeholder="Contoh: Blok C5 No. 12" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm">
+                    </div>
+                    ${pinField('new-nasabah-pin', 'PIN Awal (min. 6 karakter)', 'Buat PIN untuk nasabah', 'new-password')}
+                    <p class="text-[11px] text-slate-400 -mt-2">Berikan PIN ini ke nasabah. Mereka bisa menggantinya sendiri lewat menu Profil → Ganti PIN.</p>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="submit" id="btn-tambah-nasabah" class="flex-1 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-sm">Tambah</button>
+                    </div>
+                </form>
+            `);
+        }
+
+        async function handleTambahNasabah(event) {
+            event.preventDefault();
+            const name = document.getElementById('new-nasabah-name').value.trim();
+            const phone = document.getElementById('new-nasabah-phone').value.trim();
+            const address = document.getElementById('new-nasabah-address').value.trim();
+            const pin = document.getElementById('new-nasabah-pin').value;
+            const digits = phone.replace(/[^0-9]/g, '');
+
+            if (!name) { showToast('Nama tidak boleh kosong!', 'error'); return; }
+            if (digits.length < 8) { showToast('Nomor HP tidak valid!', 'error'); return; }
+            if (pin.length < 6) { showToast('PIN minimal 6 karakter!', 'error'); return; }
+            if (dbUsers.some(u => String(u.phone || '').replace(/[^0-9]/g, '') === digits)) {
+                showToast('Nomor HP ini sudah terdaftar sebagai nasabah!', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btn-tambah-nasabah');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+            const sAuth = getSecondaryAuth();
+            let cred = null;
+            try {
+                cred = await sAuth.createUserWithEmailAndPassword(phoneToEmail(phone), pin);
+                const newUser = { phone, name, role: 'nasabah', saldo: 0, joinedDate: todayStr(), status: 'Aktif' };
+                if (address) newUser.address = address;
+                await db.collection('users').doc(cred.user.uid).set(newUser);
+                await sAuth.signOut();
+                closeModal();
+                showToast('Nasabah ' + name + ' berhasil ditambahkan.');
+            } catch (err) {
+                console.error(err);
+                // Jika akun login terlanjur dibuat tapi profil gagal tersimpan, batalkan agar tidak ada akun yatim
+                if (cred && cred.user) { try { await cred.user.delete(); } catch (e) { console.error(e); } }
+                try { await sAuth.signOut(); } catch (e) { /* abaikan */ }
+                const msg = {
+                    'auth/email-already-in-use': 'Nomor HP ini pernah terdaftar. Jika nasabahnya sudah dihapus sebelumnya, hapus dulu akun loginnya di Firebase Console → Authentication, atau pakai nomor lain.',
+                    'auth/weak-password': 'PIN terlalu lemah, minimal 6 karakter!',
+                    'auth/invalid-email': 'Nomor HP tidak valid!'
+                }[err.code] || ('Gagal menambah nasabah: ' + err.message);
+                showToast(msg, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Tambah';
+            }
+        }
+
+        function openHapusNasabahModal(userId) {
+            const u = dbUsers.find(x => x.id === userId);
+            if (!u) return;
+            const jumlahSetoran = dbSetoran.filter(s => s.userId === userId).length;
+            const row = (label, value) => `<div class="flex justify-between gap-4"><span class="text-slate-500">${label}</span><span class="font-semibold text-slate-800 text-right break-words">${value}</span></div>`;
+            openModal(`
+                <div class="modal-card bg-white max-w-md w-full p-5 sm:p-6 rounded-3xl shadow-2xl space-y-4">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-11 h-11 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center shrink-0"><i class="fa-solid fa-user-minus"></i></div>
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-base">Hapus nasabah ini?</h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Profil, riwayat setoran, dan catatan penarikan nasabah dihapus permanen dan tidak bisa dikembalikan.</p>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-sm space-y-1.5">
+                        ${row('Nama', esc(u.name || '-'))}
+                        ${row('Nomor HP', esc(u.phone || '-'))}
+                        ${row('Riwayat setoran', jumlahSetoran + ' data')}
+                        ${row('Saldo', rpf(u.saldo))}
+                    </div>
+                    ${(u.saldo || 0) > 0 ? `<p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Nasabah ini masih punya saldo ${rpf(u.saldo)}. Pastikan sudah dibayarkan sebelum dihapus.</p>` : ''}
+                    <p class="text-[11px] text-slate-400">Nasabah tidak bisa masuk lagi setelah dihapus. Akun loginnya tetap ada di Firebase Authentication karena aplikasi web tidak bisa menghapusnya.</p>
+                    <div class="flex gap-2 pt-1">
+                        <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Batal</button>
+                        <button type="button" id="btn-hapus-nasabah" onclick="handleHapusNasabah('${u.id}')" class="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm">Ya, Hapus</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        async function handleHapusNasabah(userId) {
+            const u = dbUsers.find(x => x.id === userId);
+            if (!u || u.role === 'admin') { closeModal(); return; }
+            const btn = document.getElementById('btn-hapus-nasabah');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
+            try {
+                // Setoran dihapus dulu (per 400 data), baru profilnya, supaya bisa diulang jika terputus di tengah jalan
+                const ids = dbSetoran.filter(s => s.userId === userId).map(s => s.id);
+                for (let i = 0; i < ids.length; i += 400) {
+                    const batch = db.batch();
+                    ids.slice(i, i + 400).forEach(sid => batch.delete(db.collection('setoran').doc(sid)));
+                    await batch.commit();
+                }
+                const pIds = dbPenarikan.filter(x => x.userId === userId).map(x => x.id);
+                for (let i = 0; i < pIds.length; i += 400) {
+                    const pb = db.batch();
+                    pIds.slice(i, i + 400).forEach(pid => pb.delete(db.collection('penarikan').doc(pid)));
+                    await pb.commit();
+                }
+                await db.collection('users').doc(userId).delete();
+                closeModal();
+                showToast('Nasabah ' + (u.name || '') + ' dihapus.');
+            } catch (err) {
+                console.error(err);
+                showToast('Gagal menghapus nasabah: ' + err.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Ya, Hapus'; }
+            }
         }
 
         function openDetailNasabahModal(userId) {
@@ -1506,7 +2347,8 @@
                         </div>
                     </div>
 
-                    <div class="pt-2 flex justify-end">
+                    <div class="pt-2 flex items-center justify-between gap-3">
+                        <button onclick="openHapusNasabahModal('${user.id}')" class="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl"><i class="fa-solid fa-trash mr-1"></i>Hapus Nasabah</button>
                         <button onclick="closeModal()" class="px-5 py-2 bg-slate-800 text-white font-bold text-xs rounded-xl">Tutup</button>
                     </div>
                 </div>
@@ -1577,6 +2419,7 @@
         });
         // Render langsung halaman depan saat dimuat
         render();
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
     </script>
 </body>
 </html>
